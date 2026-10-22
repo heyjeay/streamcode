@@ -81,7 +81,7 @@ const active = ref(0)
         <div class="absolute -inset-6 -z-10 rounded-[2rem] bg-indigo-500/20 blur-3xl" />
         <StudioPreview />
         <p class="mt-3 text-xs text-white/45">
-          The code panel is the actual overlay, running in your browser and typing by itself. Try the themes and effects under the canvas.
+          The code panel is the actual overlay, running in your browser and typing by itself. Switch scenes under the canvas to try the 3D tilt and the zooms.
         </p>
       </div>
     </section>

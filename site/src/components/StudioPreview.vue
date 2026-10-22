@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
-  Circle, Eye, Gamepad2, Globe, Lock, MonitorPlay, Plus, Settings, SlidersHorizontal, Video, Volume2
+  Circle, Eye, Gamepad2, Globe, Lock, MonitorPlay, Settings, Video, Volume2
 } from 'lucide-vue-next'
-import { OVERLAY_URL, THEMES } from '@/config'
 
 /**
  * The hero preview, dressed as a streaming studio: a 1080p program canvas with a game scene,
@@ -14,32 +13,18 @@ import { OVERLAY_URL, THEMES } from '@/config'
 const debug = false
 const log = (...a: unknown[]) => { if (debug) console.log('[StudioPreview]', ...a) }
 
-// ---- the overlay source ----
-const theme = ref<string>('mocha')
-const EFFECTS = [
-  { id: '3d', label: '3D tilt', query: 'tilty=-16&tiltx=4&depth=14&scale=0.92' },
+// ---- scenes: each one is a look for the overlay source, switched like scenes in a streaming app ----
+const SCENES = [
+  { id: '3d', label: '3D tilt', query: 'tilty=-16&tiltx=4&depth=14&scale=0.92&zoom=lens' },
   { id: 'lens', label: 'Lens zoom', query: 'zoom=lens' },
   { id: 'camera', label: 'Camera zoom', query: 'zoom=camera' },
-  { id: 'clean', label: 'Just the code', query: 'clean&fade=22' },
 ] as const
-// on from the start: the look that sells it best over a game
-const effects = ref<Set<string>>(new Set(['3d', 'lens', 'clean']))
-
-function toggle(id: string) {
-  const next = new Set(effects.value)
-  if (next.has(id)) next.delete(id)
-  else {
-    if (id === 'lens') next.delete('camera')
-    if (id === 'camera') next.delete('lens')
-    next.add(id)
-  }
-  effects.value = next
-}
+const scene = ref<string>('3d')
 
 const overlaySrc = computed(() => {
-  const extra = EFFECTS.filter((e) => effects.value.has(e.id)).map((e) => '&' + e.query).join('')
-  // no ?backdrop: the overlay is transparent, so it composites over the game like a real browser source
-  return `${import.meta.env.BASE_URL}overlay.html?demo&size=30&theme=${theme.value}${extra}`
+  const s = SCENES.find((x) => x.id === scene.value) ?? SCENES[0]
+  // no ?backdrop and ?clean: the overlay is transparent and floats over the game, like a real browser source
+  return `${import.meta.env.BASE_URL}overlay.html?demo&size=30&clean&fade=22&${s.query}`
 })
 
 // ---- scale the 1920x1080 program canvas to the space it has ----
@@ -94,7 +79,6 @@ const WINDOWS = BUILDINGS.flatMap((b) => {
   return out
 }).filter((w) => w.on)
 
-const SCENES = ['Coding stream', 'Just chatting', 'Starting soon', 'BRB']
 const SOURCES = [
   { name: 'Stream Code', kind: 'Browser', icon: Globe, selected: true },
   { name: 'Game', kind: 'Game capture', icon: Gamepad2, selected: false },
@@ -108,7 +92,7 @@ const SOURCES = [
       <span class="h-2.5 w-2.5 rounded-full bg-white/20" />
       <span class="h-2.5 w-2.5 rounded-full bg-white/20" />
       <span class="h-2.5 w-2.5 rounded-full bg-white/20" />
-      <span class="ml-3 flex min-w-0 items-center gap-1.5 truncate text-xs text-white/55"><MonitorPlay :size="13" class="shrink-0" /> Streaming studio<span class="hidden sm:inline"> · Scene: Coding stream</span></span>
+      <span class="ml-3 flex min-w-0 items-center gap-1.5 truncate text-xs text-white/55"><MonitorPlay :size="13" class="shrink-0" /> Streaming studio<span class="hidden sm:inline"> · Scene: {{ SCENES.find((x) => x.id === scene)?.label }}</span></span>
       <span class="ml-auto flex shrink-0 items-center gap-1.5 rounded bg-red-600 px-2 py-0.5 text-[11px] font-bold tracking-wider text-white">
         <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> LIVE {{ hhmmss }}
       </span>
@@ -169,45 +153,24 @@ const SOURCES = [
       </div>
     </div>
 
-    <!-- properties of the selected source: theme and effects -->
-    <div class="border-y border-black/40 bg-[#20232b] px-3 py-2.5">
-      <div class="mb-2 flex items-center gap-2 text-xs text-white/50">
-        <SlidersHorizontal :size="13" class="shrink-0" /> Properties for 'Stream Code' <span class="hidden font-mono text-white/35 sm:inline">· {{ OVERLAY_URL }}</span>
-      </div>
-      <div class="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Theme">
-        <button
-          v-for="t in THEMES"
-          :key="t.id"
-          role="radio"
-          :aria-checked="theme === t.id"
-          class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs ring-1 transition"
-          :class="theme === t.id ? 'bg-white text-neutral-900 ring-white' : 'bg-black/25 text-white/75 ring-white/10 hover:bg-white/10 hover:text-white'"
-          @click="theme = t.id"
-        >
-          <span class="h-2 w-2 rounded-full ring-1 ring-black/20" :style="{ background: t.swatch }" />{{ t.label }}
-        </button>
-        <span class="mx-1 hidden w-px self-stretch bg-white/10 sm:block" />
-        <button
-          v-for="e in EFFECTS"
-          :key="e.id"
-          :aria-pressed="effects.has(e.id)"
-          class="rounded-md px-2.5 py-1 text-xs ring-1 transition"
-          :class="effects.has(e.id) ? 'bg-sky-500 text-white ring-sky-400' : 'bg-black/25 text-white/65 ring-white/10 hover:bg-white/10 hover:text-white'"
-          @click="toggle(e.id)"
-        >
-          {{ e.label }}
-        </button>
-      </div>
-    </div>
-
     <!-- docks -->
     <div class="grid gap-px bg-black/40 text-xs text-white/75 sm:grid-cols-2 lg:grid-cols-4">
       <section class="bg-[#1b1d24] p-3">
         <h3 class="mb-2 font-semibold text-white/50">Scenes</h3>
-        <ul class="space-y-0.5">
-          <li v-for="(s, i) in SCENES" :key="s" class="rounded px-2 py-1" :class="i === 0 ? 'bg-[#3b4a6b] text-white' : ''">{{ s }}</li>
+        <ul class="space-y-0.5" role="radiogroup" aria-label="Scene">
+          <li v-for="s in SCENES" :key="s.id">
+            <button
+              role="radio"
+              :aria-checked="scene === s.id"
+              class="w-full rounded px-2 py-1 text-left transition"
+              :class="scene === s.id ? 'bg-[#3b4a6b] text-white' : 'hover:bg-white/5 hover:text-white'"
+              @click="scene = s.id"
+            >
+              {{ s.label }}
+            </button>
+          </li>
         </ul>
-        <div class="mt-2 flex gap-1 text-white/35"><Plus :size="14" /></div>
+        <p class="mt-2 text-[11px] text-white/35">Click a scene to switch the look.</p>
       </section>
       <section class="bg-[#1b1d24] p-3">
         <h3 class="mb-2 font-semibold text-white/50">Sources</h3>
