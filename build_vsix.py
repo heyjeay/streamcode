@@ -37,6 +37,11 @@ STAGE_DIR = os.path.join(HERE, "build", "marketplace")  # --marketplace: what Mi
 README = os.path.join(EXT_DIR, "README.md")
 
 # Public https folder holding the files of extension/images (see the docstring). Empty = no images on the page.
+# The VS Code Marketplace already has an unrelated extension called "Stream Code" and refuses
+# duplicate display names, so --marketplace packages under this name instead. Everywhere else
+# (the repo, the GitHub release, the site) it stays "Stream Code".
+MARKETPLACE_DISPLAY_NAME = "Stream Code Overlay"
+
 IMAGES_BASE_URL = "https://stream-code.pages.dev"  # Cloudflare Pages project "stream-code"; see publish-images.bat
 
 # ![alt](relative/path): any image that isn't already an http(s) URL
@@ -187,6 +192,14 @@ def build_marketplace():
     os.makedirs(STAGE_DIR)
     for fn in EXT_FILES:
         shutil.copy2(os.path.join(EXT_DIR, fn), os.path.join(STAGE_DIR, fn))
+    # Marketplace-only display name (see MARKETPLACE_DISPLAY_NAME); the package.json in the repo is untouched
+    staged = os.path.join(STAGE_DIR, "package.json")
+    with open(staged, encoding="utf-8") as f:
+        staged_pkg = json.load(f)
+    staged_pkg["displayName"] = MARKETPLACE_DISPLAY_NAME
+    with open(staged, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(staged_pkg, f, indent=2, ensure_ascii=False)
+        f.write("\n")
     with open(os.path.join(STAGE_DIR, "README.md"), "w", encoding="utf-8", newline="\n") as f:
         f.write(readme)
     shutil.copy2(OVERLAY, os.path.join(STAGE_DIR, "overlay.html"))
