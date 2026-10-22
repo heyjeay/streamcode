@@ -1,11 +1,11 @@
 /** Links and facts the website shows, in one place. */
 export const GITHUB_URL = 'https://github.com/heyjeay/streamcode'
 export const DISCORD_URL = 'https://discord.gg/8wwfPxfMWA'
-/** The newest release's .vsix, under a fixed name so this link never changes. */
-export const DOWNLOAD_URL = `${GITHUB_URL}/releases/latest/download/stream-code.vsix`
 export const RELEASES_URL = `${GITHUB_URL}/releases`
-/** Empty until the extension is live on the VS Code Marketplace. */
-export const MARKETPLACE_URL = ''
+/** Where people install it: the VS Code Marketplace listing. */
+export const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=heyjeay.stream-code'
+/** In VS Code's Quick Open (Ctrl+P), this installs it directly. */
+export const INSTALL_COMMAND = 'ext install heyjeay.stream-code'
 export const OVERLAY_URL = 'http://127.0.0.1:7331/'
 
 /** The overlay's themes, in the order the extension lists them. */

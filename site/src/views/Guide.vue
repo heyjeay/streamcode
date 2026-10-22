@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowLeft, Download } from 'lucide-vue-next'
-import { DISCORD_URL, DOWNLOAD_URL, OVERLAY_URL } from '@/config'
+import { DISCORD_URL, INSTALL_COMMAND, MARKETPLACE_URL, OVERLAY_URL } from '@/config'
 
 /** Setup guide: install, add to OBS, and every setting and URL option in one place. */
 const SETTINGS = [
@@ -53,13 +53,17 @@ const URL_OPTIONS = [
       <h2 class="text-2xl font-bold">1. Install the extension</h2>
       <ol class="mt-4 list-decimal space-y-2 pl-5 text-white/75">
         <li>
-          Download <a :href="DOWNLOAD_URL" class="text-sky-300 underline-offset-2 hover:underline">stream-code.vsix</a>.
+          Open <a :href="MARKETPLACE_URL" target="_blank" rel="noopener noreferrer" class="text-sky-300 underline-offset-2 hover:underline">Stream Code Overlay on the VS Code Marketplace</a>
+          and click <b>Install</b>. Or search for <b>Stream Code Overlay</b> in VS Code's Extensions view.
         </li>
-        <li>In VS Code open the Extensions view, click the <b>...</b> menu at its top and choose <b>Install from VSIX...</b>.</li>
+        <li>
+          Or press <kbd class="rounded bg-black/30 px-1.5 py-0.5 font-mono text-sm">Ctrl+P</kbd> in VS Code and run
+          <code class="rounded bg-black/30 px-1.5 py-0.5 font-mono text-sky-300">{{ INSTALL_COMMAND }}</code>.
+        </li>
         <li>A <b>Code</b> item appears at the right of the status bar. Clicking it pauses and resumes broadcasting.</li>
       </ol>
-      <a :href="DOWNLOAD_URL" class="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 font-medium text-neutral-900 shadow-lg transition hover:bg-white/85">
-        <Download :size="17" /> Download the latest version
+      <a :href="MARKETPLACE_URL" target="_blank" rel="noopener noreferrer" class="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 font-medium text-neutral-900 shadow-lg transition hover:bg-white/85">
+        <Download :size="17" /> Install from the Marketplace
       </a>
     </section>
 

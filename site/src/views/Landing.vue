@@ -6,7 +6,7 @@ import {
 import { siDiscord, siGithub } from 'simple-icons'
 import BrandIcon from '@/components/BrandIcon.vue'
 import StudioPreview from '@/components/StudioPreview.vue'
-import { DISCORD_URL, DOWNLOAD_URL, GITHUB_URL, MARKETPLACE_URL, OVERLAY_URL, RELEASES_URL } from '@/config'
+import { DISCORD_URL, GITHUB_URL, MARKETPLACE_URL, OVERLAY_URL, RELEASES_URL } from '@/config'
 import shotLens from '@ext/images/zoom-lens.webp'
 import shotCamera from '@ext/images/zoom-camera.webp'
 import shotNeon from '@ext/images/neon-3d.webp'
@@ -27,7 +27,7 @@ const FEATURES = [
 ]
 
 const STEPS = [
-  { title: 'Install the extension', body: 'Download the .vsix and use Install from VSIX in VS Code. A Code button appears in the status bar.' },
+  { title: 'Install the extension', body: 'Get Stream Code Overlay from the VS Code Marketplace. A Code button appears in the status bar.' },
   { title: 'Add a browser source', body: `In OBS or Meld Studio, add a Browser source pointing at ${OVERLAY_URL}` },
   { title: 'Open a file and type', body: 'That is it. The overlay follows whichever VS Code window you are typing in.' },
 ]
@@ -56,21 +56,13 @@ const active = ref(0)
       </p>
       <div class="mt-9 flex flex-wrap items-center justify-center gap-3">
         <a
-          :href="DOWNLOAD_URL"
+          :href="MARKETPLACE_URL"
+          target="_blank"
+          rel="noopener noreferrer"
           class="flex items-center gap-2 rounded-full bg-white px-6 py-3 font-medium text-neutral-900 shadow-lg transition hover:bg-white/85"
         >
-          <Download :size="18" /> Download for VS Code
+          <Download :size="18" /> Install from the VS Code Marketplace
         </a>
-        <a
-          v-if="MARKETPLACE_URL"
-          :href="MARKETPLACE_URL"
-          class="flex items-center gap-2 rounded-full bg-sky-500 px-6 py-3 font-medium text-white shadow-lg transition hover:bg-sky-400"
-        >
-          Get it on the Marketplace <ArrowRight :size="18" />
-        </a>
-        <span v-else class="flex items-center gap-2 rounded-full px-5 py-3 text-sm text-white/60 ring-1 ring-white/15">
-          VS Code Marketplace: coming soon
-        </span>
       </div>
       <p class="mt-4 text-sm text-white/50">
         Free and open source. Works with OBS, Meld Studio and anything with a browser source.

@@ -1,6 +1,6 @@
 # Stream Code
 
-**Website:** https://heyjeay.github.io/streamcode/ · **Download:** [latest release](https://github.com/heyjeay/streamcode/releases/latest) · **Support:** [Discord](https://discord.gg/8wwfPxfMWA)
+**Website:** https://heyjeay.github.io/streamcode/ · **Install:** [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=heyjeay.stream-code) · **Support:** [Discord](https://discord.gg/8wwfPxfMWA)
 
 Shows the file you are editing in VS Code as a clean, syntax-highlighted panel in OBS,
 instead of capturing the VS Code window. Twelve themes, no tabs, sidebars, minimap or
