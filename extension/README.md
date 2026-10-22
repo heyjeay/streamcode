@@ -160,3 +160,9 @@ Need help, found a bug, or want a feature? Join the Discord:
 **[discord.gg/8wwfPxfMWA](https://discord.gg/8wwfPxfMWA)**
 
 Made by heyjeay for the FiveM dev streams on Kick and Twitch.
+
+## License
+
+Copyright (C) 2026 heyjeay. Stream Code is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).

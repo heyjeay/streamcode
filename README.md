@@ -227,3 +227,9 @@ node extension/server.js --demo --port 7332
 
 serves the overlay at `http://127.0.0.1:7332/` with a cycling canned state, and
 `curl http://127.0.0.1:7331/state` shows what the live extension is sending.
+
+## License
+
+Copyright (C) 2026 heyjeay. Stream Code is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).

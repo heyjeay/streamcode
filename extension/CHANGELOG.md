@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.1
+
+- Now licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later), instead of MIT.
+
 ## 1.6.0
 
 First Marketplace release.

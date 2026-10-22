@@ -2,9 +2,9 @@
   "name": "stream-code",
   "displayName": "Stream Code",
   "description": "Show the code you're writing on stream: a clean, themed, syntax-highlighted overlay for OBS and other browser sources, instead of capturing the VS Code window.",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "publisher": "heyjeay",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "homepage": "https://heyjeay.github.io/streamcode/",
   "repository": {
     "type": "git",

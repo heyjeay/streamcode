@@ -255,7 +255,7 @@ const active = ref(0)
             <BrandIcon :path="siGithub.path" :size="30" />
           </span>
           <div class="flex-1">
-            <h2 class="text-xl font-bold">Stream Code is open source. Help build it.</h2>
+            <h2 class="text-xl font-bold">Stream Code is open source (GPL-3.0). Help build it.</h2>
             <p class="mt-1 text-white/70">
               Add a theme, fix a bug or improve the overlay, and send it as a pull request. A theme is one block of colours in
               <code class="font-mono text-sky-300">stream_code.html</code>.
