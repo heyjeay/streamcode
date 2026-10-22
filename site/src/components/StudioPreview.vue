@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
-  Camera, Circle, Eye, Gamepad2, Globe, Lock, MonitorPlay, Plus, Settings, SlidersHorizontal, Video, Volume2
+  Circle, Eye, Gamepad2, Globe, Lock, MonitorPlay, Plus, Settings, SlidersHorizontal, Video, Volume2
 } from 'lucide-vue-next'
 import { OVERLAY_URL, THEMES } from '@/config'
 
 /**
  * The hero preview, dressed as a streaming studio: a 1080p program canvas with a game scene,
- * a webcam and the real overlay as a selected browser source, and the docks a streamer knows
+ * and the real overlay as a selected browser source in the bottom-right corner, and the docks a streamer knows
  * (scenes, sources, audio mixer, controls). Generic on purpose: no OBS or Meld branding.
  * The canvas is laid out at 1920x1080 and scaled to fit, the way a streaming app scales sources.
  */
@@ -97,7 +97,6 @@ const WINDOWS = BUILDINGS.flatMap((b) => {
 const SCENES = ['Coding stream', 'Just chatting', 'Starting soon', 'BRB']
 const SOURCES = [
   { name: 'Stream Code', kind: 'Browser', icon: Globe, selected: true },
-  { name: 'Webcam', kind: 'Video capture', icon: Camera, selected: false },
   { name: 'Game', kind: 'Game capture', icon: Gamepad2, selected: false },
 ]
 </script>
@@ -151,18 +150,8 @@ const SOURCES = [
             <span class="text-amber-300">★</span><span class="text-amber-300">★</span><span>★</span><span>★</span><span>★</span>
           </div>
 
-          <!-- webcam -->
-          <div class="absolute bottom-[40px] right-[40px] h-[300px] w-[400px] overflow-hidden rounded-2xl border-4 border-[#cba6f7] bg-[radial-gradient(circle_at_50%_35%,#3b3f5c,#1e1e2e)] shadow-2xl">
-            <svg class="absolute bottom-0 left-1/2 -translate-x-1/2" width="260" height="230" viewBox="0 0 260 230" aria-hidden="true">
-              <circle cx="130" cy="80" r="56" fill="#585b70" />
-              <path d="M20 230 C20 150 70 135 130 135 C190 135 240 150 240 230 Z" fill="#585b70" />
-              <rect x="70" y="58" width="120" height="22" rx="11" fill="#313244" />
-            </svg>
-            <span class="absolute left-3 top-3 rounded bg-black/55 px-2 py-0.5 text-[20px] font-semibold text-white">heyjeay</span>
-          </div>
-
           <!-- the Stream Code browser source, selected -->
-          <div class="absolute left-[70px] top-[70px] h-[640px] w-[1080px]">
+          <div class="absolute bottom-[40px] right-[40px] h-[640px] w-[1080px]">
             <iframe
               :key="overlaySrc"
               :src="overlaySrc"
