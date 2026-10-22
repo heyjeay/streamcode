@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import {
-  ArrowRight, Box, Download, Lock, MonitorPlay, Palette, Radio, ScanSearch, ShieldCheck, SlidersHorizontal, Zap
+  ArrowRight, Box, Download, Lock, Palette, Radio, ScanSearch, ShieldCheck, SlidersHorizontal, Zap
 } from 'lucide-vue-next'
 import { siDiscord, siGithub } from 'simple-icons'
 import BrandIcon from '@/components/BrandIcon.vue'
@@ -48,9 +48,6 @@ const active = ref(0)
   <main>
     <!-- Hero -->
     <section class="mx-auto max-w-6xl px-5 pb-16 pt-10 text-center sm:pt-16">
-      <p class="mx-auto mb-5 inline-flex items-center gap-2 rounded-full bg-white/[.06] px-4 py-1.5 text-sm text-white/70 ring-1 ring-white/10 backdrop-blur-md">
-        <MonitorPlay :size="15" class="text-sky-300" /> A VS Code extension for streamers who code
-      </p>
       <h1 class="mx-auto max-w-3xl text-5xl font-bold leading-[1.05] tracking-tight sm:text-7xl">
         Your code, live on stream.
       </h1>
