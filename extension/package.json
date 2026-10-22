@@ -1,6 +1,6 @@
 {
   "name": "stream-code",
-  "displayName": "Stream Code Overlay",
+  "displayName": "Stream Code",
   "description": "Show the code you're writing on stream: a clean, themed, syntax-highlighted overlay for OBS and other browser sources, instead of capturing the VS Code window.",
   "version": "1.6.1",
   "publisher": "heyjeay",
