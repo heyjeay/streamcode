@@ -202,23 +202,6 @@ Google Fonts with Consolas as the fallback.
 | `streamCode.hideFiles` | see above | globs that are never broadcast |
 | `streamCode.overlayPath` | empty | serve this HTML file instead of the bundled one |
 
-## Publishing to the VS Code Marketplace
-
-1. Sign in at https://marketplace.visualstudio.com/manage with a Microsoft account and
-   create a publisher whose ID is `heyjeay` (it must match `publisher` in
-   `extension/package.json`).
-2. `python build_vsix.py --marketplace` packages the extension with Microsoft's `vsce`
-   (through `npx`, nothing to install) into `stream-code-<version>-marketplace.vsix`.
-   It refuses to run without `IMAGES_BASE_URL`, since the Marketplace page only shows
-   https images.
-3. On the manage page: **New extension -> Visual Studio Code**, upload that `.vsix`.
-   The Marketplace scans it for a few minutes before it goes live.
-
-For an update, raise `version` in `extension/package.json`, add a line to
-`extension/CHANGELOG.md`, rebuild with `--marketplace`, and upload it with **Update** from
-the extension's `...` menu on the manage page. The display name must be unique on the
-whole Marketplace.
-
 ## Testing without VS Code
 
 ```
