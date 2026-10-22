@@ -1,0 +1,23 @@
+/* Fonts are bundled rather than fetched, the same way as the Tabscape site. */
+@import '@fontsource-variable/google-sans-flex';
+@import '@fontsource-variable/jetbrains-mono';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html { scroll-behavior: smooth; }
+body { font-family: 'Google Sans Flex', system-ui, sans-serif; }
+
+/* page transitions between the landing page and the guide */
+.page-enter-active, .page-leave-active { transition: opacity .25s ease, transform .25s ease; }
+.page-enter-from { opacity: 0; transform: translateY(8px); }
+.page-leave-to { opacity: 0; transform: translateY(-8px); }
+
+.fade-enter-active, .fade-leave-active { transition: opacity .2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .page-enter-active, .page-leave-active, .fade-enter-active, .fade-leave-active { transition: none; }
+}

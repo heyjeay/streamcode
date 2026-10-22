@@ -1,0 +1,1432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Code</title>
+<!--
+  Stream Code overlay - shows the file you're editing in VS Code, clean, as an OBS browser source.
+  Data comes from the "Stream Code" VS Code extension (stream_code/extension) over Server-Sent Events.
+
+  Use as a browser source:   http://127.0.0.1:7331/            (served by the extension)
+  Pick the look in VS Code:  settings -> Stream Code (theme, header, background, line numbers, wrap, size)
+                             or http://127.0.0.1:7331/?gallery  (previews every theme, click to apply)
+
+  URL options override the VS Code settings for one source:
+                             ?theme=kick   any theme name from THEMES below
+                             ?size=22      font size in px
+                             ?lh=1.6       line height multiplier
+                             ?wrap=0       don't word-wrap long lines (slide them sideways instead)
+                             ?nums=0       hide line numbers
+                             ?header=0     hide the file name bar
+                             ?bg=0         no panel background: the code floats over the game
+                             ?clean        header=0 + bg=0: just the code
+                             ?fade=25      fade the code out over the top and bottom 25% (0 = hard edges)
+                             ?tiltx=15 ?tilty=-25 ?rot=3      3D: tilt forward/back, turn left/right, rotate (degrees)
+                             ?persp=1200 ?scale=0.9 ?depth=16 ?float=1 ?opacity=0.9
+                             ?zoom=camera|lens  ?zoomfollow=both|mouse|cursor  ?zoomamt=1.8  ?zoomidle=5
+                                           zoom in on what you point at (mouse) or edit (text cursor)
+                             ?follow=0     with wrap off: don't slide long lines to keep the caret in view
+                             ?demo         canned Lua that types itself, for positioning in OBS (&still = one frame)
+                             ?backdrop     paint a game-like gradient behind the panel (for screenshots)
+                             ?gallery      theme gallery / control panel
+                             ?debug        green HUD with connection state
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500;600&family=VT323&family=Oswald:wght@500;600;700&family=Inter:wght@500;600;700&display=swap">
+<style>
+  :root {
+    /* defaults = the Mocha theme; applyTheme() overwrites all of these */
+    --panel: rgba(30, 30, 46, 0.93);
+    --panel-solid: #1e1e2e;
+    --edge: rgba(255, 255, 255, 0.07);
+    --radius: 16px;
+    --shadow: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.35);
+    --head-bg: rgba(24, 24, 37, 0.85);
+    --head-edge: rgba(255, 255, 255, 0.07);
+    --head-font: 'Inter', system-ui, sans-serif;
+    --head-size: 15px;
+    --head-weight: 600;
+    --head-transform: none;
+    --head-spacing: 0;
+    --head-text: #cdd6f4;
+    --head-dim: #7f849c;
+    --dot: #a6e3a1;
+    --text: #cdd6f4;
+    --nums: #6c7086;
+    --nums-active: #b4befe;
+    --curline: rgba(49, 50, 68, 0.55);
+    --sel: rgba(88, 91, 112, 0.6);
+    --caret: #f5e0dc;
+    --caret-glow: rgba(245, 224, 220, 0.8);
+    --accent: #b4befe;
+    --accent2: #89b4fa;
+    --accent-bg: rgba(180, 190, 254, 0.14);
+    --accent-edge: rgba(180, 190, 254, 0.35);
+    --mono: 'IBM Plex Mono', 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    --text-shadow: none;
+    --size: 22px;                 /* font size, from the look */
+    --lh: 35px;                   /* computed: size * line height */
+    --charw: 13px;                /* measured */
+    --gutter-w: 64px;             /* computed from the line count */
+    /* 3D look, from the settings */
+    --tiltx: 0deg; --tilty: 0deg; --rot: 0deg; --persp: 1200px; --scale: 1; --opacity: 1; --depth: 0px;
+    --fade: 4%;                   /* edge fade: share of the code area that fades at the top and at the bottom */
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  body { font-family: var(--mono); color: var(--text); }
+
+  /* ===== 3D stage: tilt / turn / rotate / scale the whole panel ===== */
+  body { perspective: var(--persp); perspective-origin: 50% 50%; }
+  #stage {
+    position: absolute; inset: 12px; transform-style: preserve-3d; opacity: var(--opacity);
+    transform: rotateX(var(--tiltx)) rotateY(var(--tilty)) rotateZ(var(--rot)) scale(var(--scale));
+    transition: transform .5s cubic-bezier(.2, .8, .2, 1), opacity .4s ease;
+  }
+  #float { position: absolute; inset: 0; transform-style: preserve-3d; }
+  body.fx-float #float { animation: float 7s ease-in-out infinite; }
+  @keyframes float { 0%, 100% { transform: translate3d(0, 0, 0) rotateY(0deg); } 50% { transform: translate3d(0, -10px, 0) rotateY(2deg); } }
+  /* fake thickness: darker copies of the panel pushed back in z, visible at the edges when tilted */
+  .slab { display: none; position: absolute; inset: 0; border-radius: var(--radius); background: var(--panel-solid); }
+  body.fx-depth .slab { display: block; }
+  body.no-bg .slab { display: none; }
+  .slab.s1 { transform: translateZ(calc(var(--depth) * -0.34)); filter: brightness(.7); }
+  .slab.s2 { transform: translateZ(calc(var(--depth) * -0.67)); filter: brightness(.5); }
+  .slab.s3 { transform: translateZ(calc(var(--depth) * -1)); filter: brightness(.35); }
+  #sheen {
+    display: none; position: absolute; inset: 0; z-index: 6; pointer-events: none; border-radius: inherit;
+    background: linear-gradient(115deg, rgba(255, 255, 255, .10) 0%, rgba(255, 255, 255, .03) 35%, rgba(255, 255, 255, 0) 60%);
+  }
+  body.fx-depth #sheen { display: block; }
+  body.no-bg #sheen { display: none; }
+
+  /* ===== the panel ===== */
+  #panel {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    opacity: 1; transform: translateY(0);
+    transition: opacity .45s ease, transform .55s cubic-bezier(.16, 1, .3, 1);
+  }
+  #panel.hidden { opacity: 0; transform: translateY(24px); pointer-events: none; }
+
+  /* ===== header ===== */
+  #head {
+    position: relative; z-index: 2;
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 18px 11px;
+    background: var(--head-bg);
+    border-bottom: 1px solid var(--head-edge);
+    font-family: var(--head-font); font-size: var(--head-size); font-weight: var(--head-weight);
+    text-transform: var(--head-transform); letter-spacing: var(--head-spacing);
+    color: var(--head-dim); white-space: nowrap; flex-shrink: 0;
+    text-shadow: var(--text-shadow);
+  }
+  body.no-header #head { display: none; }
+  #dot {
+    width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+    background: var(--dot); box-shadow: 0 0 10px var(--dot);
+    animation: pulse 1.6s ease-in-out infinite;
+    transition: background .3s, box-shadow .3s;
+  }
+  #dot.off { background: var(--nums); box-shadow: none; animation: none; }
+  #dot.demo { background: #f9e2af; box-shadow: 0 0 10px #f9e2af; }
+  @keyframes pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+  #path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-weight: 500; font-size: calc(var(--head-size) + 1px); text-transform: none; letter-spacing: 0; }
+  #dir { color: var(--head-dim); }
+  #name { color: var(--head-text); font-weight: 600; }
+  #dirty { display: none; color: var(--accent); font-size: 18px; line-height: 1; margin-left: -4px; }
+  #dirty.on { display: inline; }
+  #lang {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+    color: var(--accent); background: var(--accent-bg); border: 1px solid var(--accent-edge);
+    padding: 3px 9px; border-radius: 999px;
+  }
+  #lang:empty { display: none; }
+  #pos { font-family: 'Inter', system-ui, sans-serif; font-size: 12px; font-weight: 600; letter-spacing: .8px; text-transform: none; color: var(--head-dim); font-variant-numeric: tabular-nums; min-width: 96px; text-align: right; }
+
+  /* header style: editor tab */
+  body[data-head="tab"] #head { padding: 10px 14px 0; align-items: flex-end; gap: 10px; }
+  body[data-head="tab"] #dot { margin-bottom: 14px; }
+  body[data-head="tab"] #path { flex: 0 1 auto; max-width: 62%; padding: 8px 16px 9px; border-radius: 9px 9px 0 0; background: var(--panel-solid); border: 1px solid var(--edge); border-bottom: 0; }
+  body[data-head="tab"] #lang { margin-left: auto; margin-bottom: 10px; }
+  body[data-head="tab"] #pos, body[data-head="tab"] #dirty { margin-bottom: 10px; }
+
+  /* header style: mac window */
+  #tl { display: none; gap: 7px; align-items: center; flex-shrink: 0; }
+  #tl i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  #tl i:nth-child(1) { background: #ff5f57; } #tl i:nth-child(2) { background: #febc2e; } #tl i:nth-child(3) { background: #28c840; }
+  body[data-head="mac"] #tl { display: flex; }
+  body[data-head="mac"] #dot { display: none; }
+  body[data-head="mac"] #path { text-align: center; font-weight: 500; }
+  body[data-head="mac"] #name { font-weight: 600; }
+
+  /* ===== code view ===== */
+  #view { position: relative; flex: 1; display: flex; min-height: 0; overflow: hidden; }
+  #gutter, #code { position: relative; overflow: hidden; height: 100%; }
+
+  /* ===== zoom: camera (the whole code view zooms and pans) or lens (a magnifier over the view) ===== */
+  #zoom { position: absolute; inset: 0; display: flex; transform-origin: 0 0; transition: transform .35s cubic-bezier(.2, .8, .2, 1); }
+  body.zoom-camera .inner, .zoom-clone .inner { will-change: auto; } /* re-raster at the zoomed size: crisp text */
+  #lens {
+    position: absolute; left: 0; top: 0; z-index: 7; display: none; overflow: hidden; pointer-events: none;
+    border-radius: 14px; background: var(--panel-solid);
+    border: 2px solid var(--accent2);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, .55), 0 0 0 1px rgba(0, 0, 0, .35), 0 0 24px var(--accent2-glow, transparent);
+    opacity: 0;
+    transition: transform .28s cubic-bezier(.2, .8, .2, 1), width .28s ease, height .28s ease, opacity .25s ease;
+  }
+  body.zoom-lens #lens { display: block; }
+  #lens.on { opacity: 1; }
+  #lens::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: linear-gradient(160deg, rgba(255, 255, 255, .10), rgba(255, 255, 255, 0) 38%); }
+  #lens-content { position: absolute; left: 0; top: 0; transform-origin: 0 0; transition: transform .28s cubic-bezier(.2, .8, .2, 1); }
+  .zoom-clone { position: absolute; inset: 0; display: flex; }
+  #gutter { width: var(--gutter-w); flex-shrink: 0; }
+  body.no-nums #gutter { width: 10px; }
+  body.no-nums .ln { display: none; }
+  #code { flex: 1; min-width: 0; }
+  /* edge fade: the code dissolves at the top and bottom of the visible area (on #view, so it stays put while the camera zooms) */
+  #view {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, .35) calc(var(--fade) * .45), #000 var(--fade),
+                                        #000 calc(100% - var(--fade)), rgba(0, 0, 0, .35) calc(100% - var(--fade) * .45), transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, .35) calc(var(--fade) * .45), #000 var(--fade),
+                                        #000 calc(100% - var(--fade)), rgba(0, 0, 0, .35) calc(100% - var(--fade) * .45), transparent 100%);
+  }
+  body.no-fade #view { -webkit-mask-image: none; mask-image: none; }
+  #code::after {
+    content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 56px; pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--panel-solid));
+    opacity: .92;
+  }
+  .inner {
+    position: absolute; left: 0; top: 0; right: 0;
+    will-change: transform;
+    transition: transform .22s cubic-bezier(.2, .8, .2, 1);
+  }
+  #code-inner { right: auto; min-width: 100%; }
+  body.no-anim .inner, body.no-anim #caret, body.no-anim .curline,
+  body.no-anim #zoom, body.no-anim #lens, body.no-anim #lens-content { transition: none !important; }
+  body.still #panel, body.still #stage, body.still #caret,
+  body.still #zoom, body.still #lens, body.still #lens-content { transition: none !important; animation: none !important; }
+  body.still #caret { opacity: 1; }
+  body.backdrop { background: linear-gradient(135deg, #3a5a40 0%, #6b7f8f 45%, #b89a63 100%); }
+
+  .line, .ln {
+    position: absolute; left: 0; min-height: var(--lh); line-height: var(--lh);
+    font-size: var(--size); white-space: pre; text-shadow: var(--text-shadow);
+  }
+  .line { padding-left: 14px; }
+  .ln { right: 14px; text-align: right; color: var(--nums); font-variant-numeric: tabular-nums; transition: color .15s; }
+  .ln.active { color: var(--nums-active); }
+  .curline { position: absolute; left: 0; right: 0; height: var(--lh); background: var(--curline); transition: top .12s ease, height .12s ease; }
+  #code-inner .curline { right: auto; width: 10000px; }
+  .sel { position: absolute; background: var(--sel); border-radius: 3px; }
+  .ref { position: absolute; width: 0; height: 0; pointer-events: none; }
+  #caret {
+    position: absolute; width: 2px;
+    height: calc(var(--lh) * .78); margin-top: calc(var(--lh) * .11);
+    background: var(--caret); box-shadow: 0 0 6px var(--caret-glow);
+    transition: top .08s ease, left .06s ease;
+    animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+  /* word wrap: lines take as many rows as they need, nothing overflows sideways */
+  body.wrap #code-inner { right: 0; min-width: 0; }
+  body.wrap #code-inner .curline { right: 0; width: auto; }
+  body.wrap .line { right: 0; padding-right: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  body.wrap #code::after { display: none; }
+
+  /* bare mode: no panel, the code floats over the game with a soft shadow for legibility */
+  body.no-bg { --text-shadow: var(--text-shadow-bare, 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .6)); }
+  body.no-bg #panel { background: transparent; border-color: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  body.no-bg #head { background: transparent; border-bottom-color: transparent; }
+  body.no-bg #code::after, body.no-bg #panel::before, body.no-bg #view::before, body.no-bg #view::after { display: none; }
+  body.no-bg #lock { text-shadow: var(--text-shadow); }
+
+  /* ===== theme effects ===== */
+  body.fx-blur #panel { backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); }
+  body.fx-topbar #panel::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; z-index: 3; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  body.fx-glow .hljs-keyword, body.fx-glow .hljs-string, body.fx-glow .hljs-number, body.fx-glow .hljs-title, body.fx-glow #name { text-shadow: 0 0 8px currentColor; }
+  body.fx-glow #caret { box-shadow: 0 0 12px var(--caret-glow), 0 0 24px var(--caret-glow); }
+  body.fx-scanlines #view::after { content: ''; position: absolute; inset: 0; z-index: 5; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 2px, transparent 2px 4px); }
+  body.fx-scanlines #view::before { content: ''; position: absolute; inset: 0; z-index: 4; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, .35)); }
+  body.fx-block-caret #caret { width: var(--charw); height: var(--lh); margin-top: 0; opacity: .5; box-shadow: none; }
+  body.fx-square .sel { border-radius: 0; }
+
+  /* private file card */
+  #lock {
+    position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    font-family: 'Inter', system-ui, sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 2.4px; text-transform: uppercase; color: var(--head-dim);
+  }
+  #lock svg { width: 44px; height: 44px; stroke: var(--accent); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: .9; }
+  #view.locked #lock { display: flex; }
+  #view.locked #gutter, #view.locked #code { visibility: hidden; }
+
+  /* ===== syntax colours (highlight.js classes -> theme variables) ===== */
+  .hljs-comment, .hljs-quote { color: var(--syn-comment); font-style: italic; }
+  .hljs-keyword, .hljs-selector-tag, .hljs-doctag { color: var(--syn-keyword); }
+  .hljs-literal, .hljs-number { color: var(--syn-number); }
+  .hljs-string, .hljs-meta .hljs-string, .hljs-addition { color: var(--syn-string); }
+  .hljs-built_in { color: var(--syn-builtin); }
+  .hljs-title, .hljs-title.function_, .hljs-title.function_.invoke__, .hljs-section { color: var(--syn-function); }
+  .hljs-title.class_, .hljs-title.class_.inherited__, .hljs-type { color: var(--syn-type); }
+  .hljs-attr, .hljs-attribute { color: var(--syn-attr); }
+  .hljs-property { color: var(--syn-property); }
+  .hljs-variable, .hljs-template-variable { color: var(--syn-variable); }
+  .hljs-variable.language_ { color: var(--syn-self); }
+  .hljs-variable.constant_ { color: var(--syn-number); }
+  .hljs-params { color: var(--syn-param); font-style: italic; }
+  .hljs-operator { color: var(--syn-operator); }
+  .hljs-punctuation { color: var(--syn-punct); }
+  .hljs-meta, .hljs-meta .hljs-keyword { color: var(--syn-meta); }
+  .hljs-tag { color: var(--syn-punct); }
+  .hljs-tag .hljs-name, .hljs-name { color: var(--syn-tag); }
+  .hljs-tag .hljs-attr { color: var(--syn-attr); }
+  .hljs-selector-class, .hljs-selector-id, .hljs-selector-attr, .hljs-selector-pseudo { color: var(--syn-type); }
+  .hljs-regexp, .hljs-symbol, .hljs-char.escape_ { color: var(--syn-regex); }
+  .hljs-section { font-weight: 600; }
+  .hljs-bullet { color: var(--syn-number); }
+  .hljs-link { color: var(--syn-builtin); text-decoration: underline; }
+  .hljs-emphasis { font-style: italic; }
+  .hljs-strong { font-weight: 600; }
+  .hljs-deletion { color: var(--syn-self); }
+  .hljs-subst { color: var(--text); }
+  .hljs-code { color: var(--syn-string); }
+  .hljs-formula { color: var(--syn-builtin); }
+
+  /* ===== debug HUD ===== */
+  #hud {
+    display: none; position: absolute; left: 20px; bottom: 18px; z-index: 9;
+    font-family: 'Inter', system-ui, sans-serif; font-size: 12px; color: #53FC18;
+    background: rgba(0, 0, 0, .65); padding: 4px 8px; border-radius: 6px; white-space: pre;
+  }
+  body.debug #hud { display: block; }
+
+  #probe { position: absolute; left: -9999px; top: 0; visibility: hidden; white-space: pre; font-family: var(--mono); font-size: var(--size); font-weight: 400; }
+
+  /* ===== gallery / control panel (?gallery) ===== */
+  body.gallery { background: #0f1014; overflow: auto; font-family: 'Inter', system-ui, sans-serif; color: #e6e6ea; }
+  body.gallery #stage, body.gallery #panel, body.gallery #hud { display: none; }
+  #gal { padding: 22px 24px 48px; max-width: 1480px; margin: 0 auto; }
+  #gal h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  #gal .sub { color: #8b8d98; font-size: 13px; margin-bottom: 18px; line-height: 1.5; }
+  #gal .sub code { color: #c9cbd6; background: #1b1c23; padding: 1px 6px; border-radius: 5px; font-family: var(--mono); font-size: 12px; }
+  #gal .top { display: flex; gap: 18px; align-items: stretch; flex-wrap: wrap; margin-bottom: 20px; }
+  #gal .controls { flex: 1 1 560px; display: flex; flex-direction: column; gap: 12px; padding: 12px 16px; background: #16171d; border: 1px solid rgba(255, 255, 255, .08); border-radius: 12px; font-size: 13px; }
+  #gal .controls .row { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; }
+  #gal .sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 18px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, .08); align-items: center; }
+  #gal .controls .sliders label { display: grid; grid-template-columns: 82px 1fr 48px; align-items: center; gap: 8px; cursor: default; white-space: nowrap; }
+  #gal .controls .sliders label.chk { display: flex; gap: 7px; cursor: pointer; }
+  #gal .controls .sliders label.pick { grid-template-columns: 82px 1fr; }
+  #gal .controls select { background: #0f1014; color: #fff; border: 1px solid rgba(255, 255, 255, .12); border-radius: 6px; padding: 4px 6px; font: inherit; }
+  #gal .sliders input[type=range] { width: 100%; accent-color: #53FC18; }
+  #gal .sliders output { text-align: right; color: #c9cbd6; font-variant-numeric: tabular-nums; font-size: 12px; }
+  #gal .preview { flex: 0 0 480px; height: 270px; position: relative; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .08); background: linear-gradient(135deg, #3a5a40 0%, #6b7f8f 45%, #b89a63 100%); }
+  #gal .preview iframe { width: 960px; height: 540px; border: 0; transform: scale(.5); transform-origin: 0 0; pointer-events: none; background: transparent; }
+  #gal .preview span { position: absolute; left: 10px; top: 8px; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; background: rgba(0, 0, 0, .45); padding: 2px 7px; border-radius: 999px; }
+  #gal .controls label { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+  #gal .controls input[type=checkbox] { width: 16px; height: 16px; accent-color: #53FC18; }
+  #gal .controls input[type=number] { width: 66px; background: #0f1014; color: #fff; border: 1px solid rgba(255, 255, 255, .12); border-radius: 6px; padding: 4px 6px; font: inherit; }
+  #gal .controls button { background: #262833; color: #fff; border: 1px solid rgba(255, 255, 255, .12); border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
+  #gal .controls button:hover { background: #30323f; }
+  #gal .controls .status { margin-left: auto; color: #8b8d98; }
+  #gal .controls .status b { color: #53FC18; font-weight: 600; }
+  #gal .controls.offline label, #gal .controls.offline button { opacity: .4; pointer-events: none; }
+  #gal .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(390px, 1fr)); gap: 18px; }
+  #gal .tile { position: relative; border-radius: 14px; overflow: hidden; border: 2px solid rgba(255, 255, 255, .06); background: linear-gradient(135deg, #3a5a40 0%, #6b7f8f 45%, #b89a63 100%); cursor: pointer; transition: border-color .2s, transform .2s, box-shadow .2s; }
+  #gal .tile:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, .25); }
+  #gal .tile.active { border-color: #53FC18; box-shadow: 0 0 0 3px rgba(83, 252, 24, .22); }
+  #gal .tile iframe { display: block; width: 100%; height: 250px; border: 0; pointer-events: none; background: transparent; }
+  #gal .tile .cap { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px; background: #16171d; }
+  #gal .tile .cap b { font-size: 14px; }
+  #gal .tile .cap span { color: #8b8d98; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #gal .tile .cap code { margin-left: auto; font-size: 11px; color: #6f7280; font-family: var(--mono); flex-shrink: 0; }
+  #gal .tile.active .cap code { color: #53FC18; }
+  #gal .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #53FC18; color: #000; font-weight: 700; font-size: 13px; padding: 9px 16px; border-radius: 999px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 20; white-space: nowrap; }
+  #gal .toast.on { opacity: 1; }
+  #gal .toast.err { background: #f38ba8; }
+</style>
+</head>
+<body>
+  <div id="stage"><div id="float">
+  <div class="slab s3"></div><div class="slab s2"></div><div class="slab s1"></div>
+  <div id="panel" class="hidden">
+    <div id="head">
+      <span id="tl"><i></i><i></i><i></i></span>
+      <span id="dot" class="off"></span>
+      <span id="path"><span id="dir"></span><span id="name"></span></span>
+      <span id="dirty">●</span>
+      <span id="lang"></span>
+      <span id="pos"></span>
+    </div>
+    <div id="view">
+      <div id="zoom">
+        <div id="gutter"><div id="gutter-inner" class="inner"><div class="curline"></div></div></div>
+        <div id="code">
+          <div id="code-inner" class="inner">
+            <div class="curline"></div>
+            <div id="sel-layer"></div>
+            <div id="line-layer"></div>
+            <div id="caret"></div>
+          </div>
+        </div>
+      </div>
+      <div id="lens"><div id="lens-content"></div></div>
+      <div id="lock">
+        <svg viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.2"/></svg>
+        <span>private file</span>
+      </div>
+    </div>
+    <div id="sheen"></div>
+  </div>
+  </div></div>
+  <div id="hud"></div>
+  <span id="probe"></span>
+
+<script>
+// ===================== CONFIG =====================
+// Defaults used when the page is opened on its own. When the VS Code extension is connected its
+// settings (Stream Code: theme, header, background, line numbers, wrap, font size, line height)
+// take over, and URL options override both for a single OBS source.
+const CONFIG = {
+  server: '',              // '' = this page's own origin. The hub refuses other origins, so a copy opened as a file can only run ?demo
+  theme: 'mocha',          // ?theme=
+  fontSize: 22,            // px, ?size=
+  lineHeight: 1.6,         // multiplier, ?lh=
+  wordWrap: true,          // ?wrap=0 slides long lines sideways instead
+  lineNumbers: true,       // ?nums=0
+  header: true,            // ?header=0   (file name bar)
+  background: true,        // ?bg=0       (panel background, border and shadow)
+                           // ?clean      = header=0 + bg=0: just the code over the game
+  edgeFade: 4,             // ?fade=      % of the code area that fades out at the top and at the bottom (0 - 45)
+  followCursor: true,      // with wrap off: slide long lines sideways so the caret stays in view (?follow=0)
+  // 3D look (?tiltx ?tilty ?rot ?persp ?scale ?depth ?float ?opacity)
+  tiltX: 0,                // degrees, tilt forward (+) / back (-)
+  tiltY: 0,                // degrees, turn right (+) / left (-)
+  rotate: 0,               // degrees, rotate in the plane
+  perspective: 1200,       // px; smaller = more dramatic
+  scale: 1,
+  depth: 0,                // px of fake thickness (0 = flat)
+  float: false,            // slow hovering motion
+  opacity: 1,
+  // zoom (?zoom ?zoomfollow ?zoomamt ?zoomidle)
+  zoom: 'off',             // 'off' | 'camera' (whole view zooms and pans) | 'lens' (magnifier over the view)
+  zoomFollow: 'both',      // 'both' (whichever moved last) | 'mouse' | 'cursor'
+  zoomAmount: 1.8,         // magnification, 1.1 - 4
+  zoomOutAfter: 0,         // seconds of no activity before the zoom eases out; 0 = stay zoomed
+  hljsBase: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/',
+  hljsVersion: '11.11.1',
+  // badge colour per VS Code language id, used by themes with badge: 'language'; anything else gets the theme accent
+  langColors: {
+    lua: '#89b4fa', javascript: '#f9e2af', typescript: '#89b4fa', javascriptreact: '#f9e2af', typescriptreact: '#89b4fa',
+    python: '#f9e2af', json: '#fab387', jsonc: '#fab387', html: '#f38ba8', vue: '#a6e3a1', css: '#cba6f7', scss: '#f5c2e7',
+    markdown: '#94e2d5', shellscript: '#a6e3a1', powershell: '#89dceb', bat: '#9399b2', csharp: '#cba6f7', cpp: '#74c7ec',
+    c: '#74c7ec', go: '#89dceb', rust: '#fab387', java: '#eba0ac', php: '#b4befe', ruby: '#f38ba8', sql: '#f9e2af',
+    yaml: '#f5c2e7', toml: '#9399b2', xml: '#fab387', dockerfile: '#89dceb', ini: '#9399b2', plaintext: '#9399b2',
+  },
+};
+
+// ===================== THEMES =====================
+// Each theme: colours (vars -> CSS custom properties), syntax colours (syn), a header style
+// (head: bar | tab | mac | none), whether it wants a background / line numbers by default,
+// how the language badge is coloured (badge: language | accent), optional effects (fx) and
+// an optional font scale. Add your own by copying one.
+const THEMES = {
+  mocha: { label: 'Mocha', about: 'Catppuccin Mocha, same as the editor', head: 'bar', badge: 'language',
+    vars: { panel: 'rgba(30,30,46,.93)', 'panel-solid': '#1e1e2e', edge: 'rgba(255,255,255,.07)', radius: '16px',
+      shadow: '0 16px 48px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.35)',
+      'head-bg': 'rgba(24,24,37,.85)', 'head-edge': 'rgba(255,255,255,.07)', 'head-text': '#cdd6f4', 'head-dim': '#7f849c', dot: '#a6e3a1',
+      text: '#cdd6f4', nums: '#6c7086', 'nums-active': '#b4befe', curline: 'rgba(49,50,68,.55)', sel: 'rgba(88,91,112,.6)',
+      caret: '#f5e0dc', 'caret-glow': 'rgba(245,224,220,.8)', accent: '#b4befe', accent2: '#89b4fa',
+      mono: "'IBM Plex Mono', 'JetBrains Mono', Consolas, monospace" },
+    syn: { keyword: '#cba6f7', string: '#a6e3a1', number: '#fab387', comment: '#7f849c', function: '#89b4fa', type: '#f9e2af', builtin: '#74c7ec',
+      attr: '#89b4fa', property: '#b4befe', variable: '#cdd6f4', self: '#f38ba8', param: '#eba0ac', operator: '#89dceb', punct: '#9399b2', meta: '#cba6f7', tag: '#89b4fa', regex: '#f5c2e7' } },
+
+  kick: { label: 'Kick', about: 'Black panel and Kick green, matches the song-request overlay', head: 'bar', badge: 'accent',
+    vars: { panel: 'rgba(11,13,11,.96)', 'panel-solid': '#0b0d0b', edge: 'rgba(255,255,255,.06)', radius: '14px',
+      shadow: '0 12px 36px rgba(0,0,0,.55)',
+      'head-bg': 'rgba(0,0,0,.35)', 'head-edge': 'rgba(255,255,255,.06)', 'head-font': "'Inter', system-ui, sans-serif", 'head-size': '11px', 'head-weight': '700',
+      'head-transform': 'uppercase', 'head-spacing': '2.2px', 'head-text': '#ffffff', 'head-dim': 'rgba(255,255,255,.4)', dot: '#53FC18',
+      text: '#ffffff', nums: 'rgba(255,255,255,.22)', 'nums-active': '#53FC18', curline: 'rgba(83,252,24,.07)', sel: 'rgba(83,252,24,.22)',
+      caret: '#53FC18', 'caret-glow': 'rgba(83,252,24,.75)', accent: '#53FC18', accent2: '#9dff74',
+      mono: "'JetBrains Mono', 'IBM Plex Mono', Consolas, monospace" },
+    syn: { keyword: '#53FC18', string: '#ffd166', number: '#ff9f43', comment: 'rgba(255,255,255,.38)', function: '#9dff74', type: '#b8ffa0', builtin: '#7cff5b',
+      attr: '#9dff74', property: '#ffffff', variable: '#ffffff', self: '#ff9f43', param: '#d9ffd0', operator: 'rgba(255,255,255,.7)', punct: 'rgba(255,255,255,.5)', meta: '#53FC18', tag: '#53FC18', regex: '#ffd166' } },
+
+  twitch: { label: 'Twitch', about: 'Twitch dark with purple accents', head: 'bar', badge: 'accent',
+    vars: { panel: 'rgba(14,14,16,.95)', 'panel-solid': '#0e0e10', edge: 'rgba(145,70,255,.3)', radius: '12px',
+      shadow: '0 12px 40px rgba(145,70,255,.18), 0 16px 40px rgba(0,0,0,.5)',
+      'head-bg': '#18181b', 'head-edge': 'rgba(145,70,255,.25)', 'head-text': '#efeff1', 'head-dim': '#848494', dot: '#9146FF',
+      text: '#efeff1', nums: '#53535f', 'nums-active': '#bf94ff', curline: 'rgba(145,70,255,.1)', sel: 'rgba(145,70,255,.3)',
+      caret: '#bf94ff', 'caret-glow': 'rgba(191,148,255,.8)', accent: '#9146FF', accent2: '#bf94ff',
+      mono: "'JetBrains Mono', 'IBM Plex Mono', Consolas, monospace" },
+    syn: { keyword: '#bf94ff', string: '#00f593', number: '#ffa366', comment: '#848494', function: '#e0c0ff', type: '#ffd37a', builtin: '#a2ffd8',
+      attr: '#e0c0ff', property: '#efeff1', variable: '#efeff1', self: '#ff8280', param: '#d2c2f5', operator: '#adadb8', punct: '#848494', meta: '#bf94ff', tag: '#bf94ff', regex: '#00f593' } },
+
+  terminal: { label: 'Terminal', about: 'Green phosphor CRT: scanlines, glow, block cursor', head: 'bar', badge: 'accent', fx: ['scanlines', 'block-caret', 'square'], fontScale: 1.3,
+    vars: { panel: 'rgba(2,10,2,.96)', 'panel-solid': '#020a02', edge: 'rgba(57,255,20,.35)', radius: '3px',
+      shadow: 'inset 0 0 80px rgba(57,255,20,.07), 0 0 24px rgba(57,255,20,.12)',
+      'head-bg': 'rgba(57,255,20,.06)', 'head-edge': 'rgba(57,255,20,.3)', 'head-font': "'VT323', monospace", 'head-size': '22px', 'head-weight': '400',
+      'head-text': '#39ff14', 'head-dim': '#1f9a12', dot: '#39ff14',
+      text: '#39ff14', nums: '#1a7a10', 'nums-active': '#7dff5e', curline: 'rgba(57,255,20,.07)', sel: 'rgba(57,255,20,.25)',
+      caret: '#39ff14', 'caret-glow': 'rgba(57,255,20,.8)', accent: '#39ff14', accent2: '#7dff5e',
+      mono: "'VT323', 'IBM Plex Mono', monospace", 'text-shadow': '0 0 6px rgba(57,255,20,.55)' },
+    syn: { keyword: '#8dff70', string: '#c8ffbf', number: '#e3ffdc', comment: '#1e9a12', function: '#a5ff8f', type: '#c8ffbf', builtin: '#8dff70',
+      attr: '#a5ff8f', property: '#39ff14', variable: '#39ff14', self: '#c8ffbf', param: '#c8ffbf', operator: '#2fd411', punct: '#2fb411', meta: '#8dff70', tag: '#8dff70', regex: '#c8ffbf' } },
+
+  paper: { label: 'Paper', about: 'Light card, GitHub-style colours', head: 'bar', badge: 'language',
+    vars: { panel: 'rgba(253,253,251,.97)', 'panel-solid': '#fdfdfb', edge: 'rgba(0,0,0,.1)', radius: '12px',
+      shadow: '0 12px 34px rgba(0,0,0,.22)',
+      'head-bg': '#f3f3ee', 'head-edge': 'rgba(0,0,0,.08)', 'head-text': '#1f2328', 'head-dim': '#8a8a86', dot: '#1a7f37',
+      text: '#24292f', nums: '#b8b8b2', 'nums-active': '#0969da', curline: 'rgba(0,0,0,.035)', sel: 'rgba(9,105,218,.18)',
+      caret: '#0969da', 'caret-glow': 'rgba(9,105,218,.5)', accent: '#0969da', accent2: '#8250df',
+      mono: "'Fira Code', 'IBM Plex Mono', Consolas, monospace", 'text-shadow-bare': '0 0 10px rgba(255,255,255,.85), 0 1px 2px rgba(255,255,255,.9)' },
+    syn: { keyword: '#cf222e', string: '#0a3069', number: '#0550ae', comment: '#6e7781', function: '#8250df', type: '#953800', builtin: '#0550ae',
+      attr: '#0550ae', property: '#24292f', variable: '#953800', self: '#cf222e', param: '#953800', operator: '#57606a', punct: '#57606a', meta: '#cf222e', tag: '#116329', regex: '#0a3069' } },
+
+  glass: { label: 'Glass', about: 'Frosted translucent panel, pastel colours', head: 'bar', badge: 'language', fx: ['blur'],
+    vars: { panel: 'rgba(16,18,28,.58)', 'panel-solid': '#10121c', edge: 'rgba(255,255,255,.18)', radius: '22px',
+      shadow: '0 20px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12)',
+      'head-bg': 'rgba(255,255,255,.05)', 'head-edge': 'rgba(255,255,255,.1)', 'head-text': '#eef0ff', 'head-dim': '#9aa0b8', dot: '#7ee8fa',
+      text: '#eef0ff', nums: 'rgba(255,255,255,.28)', 'nums-active': '#7ee8fa', curline: 'rgba(255,255,255,.06)', sel: 'rgba(126,232,250,.25)',
+      caret: '#ffffff', 'caret-glow': 'rgba(255,255,255,.8)', accent: '#7ee8fa', accent2: '#c3a6ff',
+      mono: "'JetBrains Mono', 'IBM Plex Mono', Consolas, monospace" },
+    syn: { keyword: '#c3a6ff', string: '#a8f0c6', number: '#ffc78f', comment: 'rgba(255,255,255,.42)', function: '#8ecaff', type: '#ffe29a', builtin: '#7ee8fa',
+      attr: '#8ecaff', property: '#d9ddff', variable: '#eef0ff', self: '#ffb3c6', param: '#ffb3c6', operator: '#9ad7ff', punct: 'rgba(255,255,255,.55)', meta: '#c3a6ff', tag: '#8ecaff', regex: '#ffb3c6' } },
+
+  neon: { label: 'Neon', about: 'Synthwave: pink and cyan with glow', head: 'bar', badge: 'accent', fx: ['topbar', 'glow'],
+    vars: { panel: 'rgba(26,16,48,.94)', 'panel-solid': '#1a1030', edge: 'rgba(255,110,199,.35)', radius: '10px',
+      shadow: '0 0 30px rgba(255,110,199,.22), 0 14px 40px rgba(0,0,0,.5)',
+      'head-bg': 'rgba(0,0,0,.28)', 'head-edge': 'rgba(255,110,199,.25)', 'head-text': '#fdf3ff', 'head-dim': '#9b8bb4', dot: '#7df9ff',
+      text: '#f2e9ff', nums: '#5a4a80', 'nums-active': '#ff6ec7', curline: 'rgba(255,110,199,.08)', sel: 'rgba(125,249,255,.22)',
+      caret: '#ff6ec7', 'caret-glow': 'rgba(255,110,199,.9)', accent: '#ff6ec7', accent2: '#7df9ff',
+      mono: "'Fira Code', 'JetBrains Mono', Consolas, monospace" },
+    syn: { keyword: '#ff6ec7', string: '#7df9ff', number: '#ffd319', comment: '#7a6a9a', function: '#72f1b8', type: '#ff901f', builtin: '#b967ff',
+      attr: '#72f1b8', property: '#f2e9ff', variable: '#f2e9ff', self: '#ff901f', param: '#ffb86c', operator: '#7df9ff', punct: '#9b8bb4', meta: '#b967ff', tag: '#ff6ec7', regex: '#ffd319' } },
+
+  mac: { label: 'Mac', about: 'macOS-style window with One Dark colours', head: 'mac', badge: 'language',
+    vars: { panel: 'rgba(40,44,52,.96)', 'panel-solid': '#282c34', edge: 'rgba(255,255,255,.1)', radius: '11px',
+      shadow: '0 22px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.4)',
+      'head-bg': '#21252b', 'head-edge': 'rgba(0,0,0,.35)', 'head-font': "system-ui, -apple-system, 'Segoe UI', sans-serif", 'head-size': '13px', 'head-weight': '500',
+      'head-text': '#d7dae0', 'head-dim': '#7f848e', dot: '#98c379',
+      text: '#abb2bf', nums: '#4b5263', 'nums-active': '#abb2bf', curline: 'rgba(255,255,255,.045)', sel: 'rgba(62,68,81,.95)',
+      caret: '#528bff', 'caret-glow': 'rgba(82,139,255,.7)', accent: '#61afef', accent2: '#c678dd',
+      mono: "'JetBrains Mono', 'IBM Plex Mono', Menlo, monospace" },
+    syn: { keyword: '#c678dd', string: '#98c379', number: '#d19a66', comment: '#5c6370', function: '#61afef', type: '#e5c07b', builtin: '#56b6c2',
+      attr: '#d19a66', property: '#e06c75', variable: '#e06c75', self: '#e06c75', param: '#abb2bf', operator: '#56b6c2', punct: '#abb2bf', meta: '#c678dd', tag: '#e06c75', regex: '#98c379' } },
+
+  nord: { label: 'Nord', about: 'Cool blue-grey with an editor-tab header', head: 'tab', badge: 'language',
+    vars: { panel: 'rgba(46,52,64,.96)', 'panel-solid': '#2e3440', edge: 'rgba(236,239,244,.1)', radius: '8px',
+      shadow: '0 10px 30px rgba(0,0,0,.4)',
+      'head-bg': '#242933', 'head-edge': 'rgba(236,239,244,.08)', 'head-text': '#eceff4', 'head-dim': '#7b88a1', dot: '#a3be8c',
+      text: '#d8dee9', nums: '#4c566a', 'nums-active': '#88c0d0', curline: 'rgba(67,76,94,.6)', sel: 'rgba(136,192,208,.25)',
+      caret: '#d8dee9', 'caret-glow': 'rgba(216,222,233,.6)', accent: '#88c0d0', accent2: '#81a1c1',
+      mono: "'IBM Plex Mono', 'JetBrains Mono', Consolas, monospace" },
+    syn: { keyword: '#81a1c1', string: '#a3be8c', number: '#b48ead', comment: '#616e88', function: '#88c0d0', type: '#8fbcbb', builtin: '#88c0d0',
+      attr: '#8fbcbb', property: '#d8dee9', variable: '#d8dee9', self: '#81a1c1', param: '#d8dee9', operator: '#81a1c1', punct: '#eceff4', meta: '#5e81ac', tag: '#81a1c1', regex: '#ebcb8b' } },
+
+  dracula: { label: 'Dracula', about: 'The Dracula palette', head: 'bar', badge: 'language',
+    vars: { panel: 'rgba(40,42,54,.95)', 'panel-solid': '#282a36', edge: 'rgba(255,255,255,.08)', radius: '12px',
+      shadow: '0 14px 40px rgba(0,0,0,.55)',
+      'head-bg': '#21222c', 'head-edge': 'rgba(255,255,255,.06)', 'head-text': '#f8f8f2', 'head-dim': '#6272a4', dot: '#50fa7b',
+      text: '#f8f8f2', nums: '#6272a4', 'nums-active': '#f8f8f2', curline: 'rgba(68,71,90,.5)', sel: 'rgba(68,71,90,.9)',
+      caret: '#f8f8f2', 'caret-glow': 'rgba(248,248,242,.6)', accent: '#bd93f9', accent2: '#ff79c6',
+      mono: "'Fira Code', 'JetBrains Mono', Consolas, monospace" },
+    syn: { keyword: '#ff79c6', string: '#f1fa8c', number: '#bd93f9', comment: '#6272a4', function: '#50fa7b', type: '#8be9fd', builtin: '#8be9fd',
+      attr: '#50fa7b', property: '#f8f8f2', variable: '#f8f8f2', self: '#bd93f9', param: '#ffb86c', operator: '#ff79c6', punct: '#f8f8f2', meta: '#ff79c6', tag: '#ff79c6', regex: '#f1fa8c' } },
+
+  gruvbox: { label: 'Gruvbox', about: 'Warm retro, boxy corners, editor-tab header', head: 'tab', badge: 'language', fx: ['square'],
+    vars: { panel: 'rgba(40,40,40,.96)', 'panel-solid': '#282828', edge: 'rgba(235,219,178,.12)', radius: '4px',
+      shadow: '0 10px 30px rgba(0,0,0,.5)',
+      'head-bg': '#1d2021', 'head-edge': 'rgba(235,219,178,.1)', 'head-text': '#ebdbb2', 'head-dim': '#928374', dot: '#b8bb26',
+      text: '#ebdbb2', nums: '#665c54', 'nums-active': '#fabd2f', curline: 'rgba(60,56,54,.7)', sel: 'rgba(80,73,69,.9)',
+      caret: '#fe8019', 'caret-glow': 'rgba(254,128,25,.7)', accent: '#fabd2f', accent2: '#fe8019',
+      mono: "'IBM Plex Mono', 'JetBrains Mono', Consolas, monospace" },
+    syn: { keyword: '#fb4934', string: '#b8bb26', number: '#d3869b', comment: '#928374', function: '#fabd2f', type: '#8ec07c', builtin: '#fe8019',
+      attr: '#8ec07c', property: '#ebdbb2', variable: '#ebdbb2', self: '#fb4934', param: '#ebdbb2', operator: '#fe8019', punct: '#a89984', meta: '#83a598', tag: '#8ec07c', regex: '#b8bb26' } },
+
+  minimal: { label: 'Minimal', about: 'No panel, no header, no numbers: just the code', head: 'none', bg: false, nums: false, badge: 'accent',
+    vars: { panel: 'transparent', 'panel-solid': '#000000', edge: 'transparent', radius: '0', shadow: 'none',
+      'head-bg': 'transparent', 'head-edge': 'transparent', 'head-text': '#ffffff', 'head-dim': 'rgba(255,255,255,.6)', dot: '#ffffff',
+      text: '#ffffff', nums: 'rgba(255,255,255,.35)', 'nums-active': '#ffffff', curline: 'rgba(255,255,255,.08)', sel: 'rgba(255,255,255,.28)',
+      caret: '#ffffff', 'caret-glow': 'rgba(255,255,255,.8)', accent: '#ffffff', accent2: '#cccccc',
+      mono: "'JetBrains Mono', 'IBM Plex Mono', Consolas, monospace",
+      'text-shadow-bare': '0 1px 2px rgba(0,0,0,.9), 0 0 12px rgba(0,0,0,.7)' },
+    syn: { keyword: '#ffffff', string: '#d6f5d6', number: '#ffe9b3', comment: 'rgba(255,255,255,.55)', function: '#ffffff', type: '#ffffff', builtin: '#e8f4ff',
+      attr: '#ffffff', property: '#ffffff', variable: '#ffffff', self: '#ffe9b3', param: '#e8e8e8', operator: 'rgba(255,255,255,.8)', punct: 'rgba(255,255,255,.6)', meta: '#ffffff', tag: '#ffffff', regex: '#d6f5d6' } },
+};
+
+// VS Code language id -> highlight.js language name (identical ids are not listed; null = plain text)
+const LANG_MAP = {
+  shellscript: 'bash', bat: 'dos', javascriptreact: 'javascript', typescriptreact: 'typescript', jsonc: 'json', json5: 'json',
+  html: 'xml', vue: 'xml', svelte: 'xml', razor: 'xml', 'jsx-tags': 'xml', 'objective-c': 'objectivec', 'objective-cpp': 'objectivec',
+  'cuda-cpp': 'cpp', toml: 'ini', raku: 'perl', vb: 'vbnet', hlsl: 'glsl', 'git-commit': null, 'git-rebase': null,
+  plaintext: null, ignore: null, log: null, properties: 'properties', 'pip-requirements': null, ssh_config: null,
+};
+// ==================================================
+
+(function () {
+  'use strict';
+  const params = new URLSearchParams(location.search);
+  const debug = params.has('debug');
+  const galleryMode = params.has('gallery');
+  const dlog = (...a) => { if (debug) console.log('[stream-code]', ...a); };
+  const num = (k, d) => { const v = parseFloat(params.get(k)); return Number.isFinite(v) && v > 0 ? v : d; };
+  const numAny = (k, d) => { const v = parseFloat(params.get(k)); return Number.isFinite(v) ? v : d; };
+  const flag = (k, d) => params.has(k) ? !/^(0|false|no|off)$/i.test(params.get(k) || '') : d;
+  const fin = (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : d);
+  const pos = (v, d) => (Number(v) > 0 ? Number(v) : d);
+  const oneOf = (k, setting, allowed, d) => { const v = params.get(k) || setting; return allowed.includes(v) ? v : d; };
+  const serverBase = (params.get('server') || CONFIG.server ||
+    (/^https?:$/.test(location.protocol) ? location.origin : 'http://127.0.0.1:7331')).replace(/\/+$/, '');
+
+  const $ = (id) => document.getElementById(id);
+  const root = document.documentElement;
+  const body = document.body;
+  const panel = $('panel'), view = $('view'), code = $('code'), codeLayer = $('code-inner'), gutterLayer = $('gutter-inner');
+  const zoomEl = $('zoom'), lens = $('lens'), lensContent = $('lens-content');
+  const lineLayer = $('line-layer'), selLayer = $('sel-layer'), caret = $('caret'), probe = $('probe'), hudEl = $('hud');
+  const dot = $('dot'), dirEl = $('dir'), nameEl = $('name'), dirtyEl = $('dirty'), langEl = $('lang'), posEl = $('pos');
+  const curlines = Array.from(document.querySelectorAll('.curline'));
+  const LINE_PAD = 14;  // matches .line padding-left
+  const EDGE_PAD = 10;  // space kept above the first / below the last line of a file
+  const BIG_JUMP = 40;  // cursor jumps bigger than this many lines snap instead of scrolling
+
+  body.classList.toggle('debug', debug);
+  body.classList.toggle('still', params.has('still'));       // one static frame: no fades, no blink
+  body.classList.toggle('backdrop', params.has('backdrop')); // game-like gradient behind the panel
+
+  // ---- look: which theme and options are in effect (URL > VS Code settings > theme > CONFIG) ----
+  let look = null;     // the look currently applied
+  let theme = null;    // name of the theme currently applied
+  let lh = 35;         // line height in px
+  let charW = 13;
+  let fontScale = 1;
+
+  function effectiveLook(s) {
+    const l = (s && s.look) || {};
+    const name = params.get('theme') || l.theme || CONFIG.theme;
+    const T = THEMES[name] ? THEMES[name] : THEMES[CONFIG.theme] || THEMES.mocha;
+    const tname = THEMES[name] ? name : (THEMES[CONFIG.theme] ? CONFIG.theme : 'mocha');
+    const clean = params.has('clean');
+    const pick = (key, setting, themeDefault) => flag(key, setting !== undefined ? !!setting : themeDefault);
+    return {
+      theme: tname,
+      header: clean ? false : pick('header', l.header, T.head !== 'none' && CONFIG.header),
+      bg: clean ? false : pick('bg', l.bg, T.bg !== false && CONFIG.background),
+      nums: pick('nums', l.nums, T.nums !== false && CONFIG.lineNumbers),
+      wrap: pick('wrap', l.wrap, CONFIG.wordWrap),
+      size: num('size', pos(l.size, CONFIG.fontSize)),
+      lh: num('lh', pos(l.lh, CONFIG.lineHeight)),
+      fade: Math.min(45, Math.max(0, numAny('fade', fin(l.fade, CONFIG.edgeFade)))),
+      follow: flag('follow', CONFIG.followCursor),
+      tiltx: numAny('tiltx', fin(l.tiltx, CONFIG.tiltX)),
+      tilty: numAny('tilty', fin(l.tilty, CONFIG.tiltY)),
+      rot: numAny('rot', fin(l.rot, CONFIG.rotate)),
+      persp: num('persp', pos(l.persp, CONFIG.perspective)),
+      scale: num('scale', pos(l.scale, CONFIG.scale)),
+      depth: Math.max(0, numAny('depth', fin(l.depth, CONFIG.depth))),
+      float: flag('float', l.float !== undefined ? !!l.float : CONFIG.float),
+      opacity: num('opacity', pos(l.opacity, CONFIG.opacity)),
+      zoom: oneOf('zoom', l.zoom, ['off', 'camera', 'lens'], CONFIG.zoom),
+      zoomFollow: oneOf('zoomfollow', l.zoomFollow, ['both', 'mouse', 'cursor'], CONFIG.zoomFollow),
+      zoomAmt: Math.min(4, Math.max(1.1, num('zoomamt', pos(l.zoomAmt, CONFIG.zoomAmount)))),
+      zoomIdle: Math.max(0, numAny('zoomidle', fin(l.zoomIdle, CONFIG.zoomOutAfter))),
+    };
+  }
+
+  function applyTheme(name) {
+    const T = THEMES[name];
+    const vars = Object.assign({}, THEMES.mocha.vars, T.vars);
+    if (!T.vars['text-shadow']) vars['text-shadow'] = 'none';
+    if (!T.vars['text-shadow-bare']) vars['text-shadow-bare'] = '';
+    for (const [k, v] of Object.entries(vars)) {
+      if (v === '') root.style.removeProperty('--' + k); else root.style.setProperty('--' + k, v);
+    }
+    for (const [k, v] of Object.entries(Object.assign({}, THEMES.mocha.syn, T.syn))) root.style.setProperty('--syn-' + k, v);
+    // header typography: back to the Mocha defaults unless the theme sets its own
+    for (const k of ['head-font', 'head-size', 'head-weight', 'head-transform', 'head-spacing']) {
+      if (T.vars[k]) root.style.setProperty('--' + k, T.vars[k]); else root.style.removeProperty('--' + k);
+    }
+    for (const c of Array.from(body.classList)) if (c.startsWith('theme-') || c.startsWith('fx-')) body.classList.remove(c);
+    body.classList.add('theme-' + name);
+    for (const fx of T.fx || []) body.classList.add('fx-' + fx);
+    body.dataset.head = T.head === 'none' ? 'bar' : (T.head || 'bar');
+    fontScale = T.fontScale || 1;
+    theme = name;
+    const a2 = /^#[0-9a-f]{6}$/i.test(vars.accent2) ? hexToRgb(vars.accent2) : [137, 180, 250];
+    root.style.setProperty('--accent2-glow', `rgba(${a2[0]},${a2[1]},${a2[2]},0.35)`);
+    setAccent(langEl.textContent);
+  }
+
+  function clearLines() {
+    for (const rec of lineEls.values()) rec.el.remove();
+    for (const rec of numEls.values()) rec.el.remove();
+    lineEls.clear(); numEls.clear();
+    prevFirst = -1; anchor = 0;
+  }
+
+  // Apply a look; returns true if the page needs a full re-render.
+  function applyLook(next) {
+    const same = look && JSON.stringify(next) === JSON.stringify(look);
+    if (same) return false;
+    const prev = look;
+    look = next;
+    if (next.theme !== theme) applyTheme(next.theme);
+    body.classList.toggle('no-header', !next.header);
+    body.classList.toggle('no-bg', !next.bg);
+    body.classList.toggle('no-nums', !next.nums);
+    body.classList.toggle('wrap', next.wrap);
+    // 3D stage
+    root.style.setProperty('--tiltx', next.tiltx + 'deg');
+    root.style.setProperty('--tilty', next.tilty + 'deg');
+    root.style.setProperty('--rot', next.rot + 'deg');
+    root.style.setProperty('--persp', next.persp + 'px');
+    root.style.setProperty('--scale', String(next.scale));
+    root.style.setProperty('--opacity', String(Math.min(1, next.opacity)));
+    root.style.setProperty('--depth', next.depth + 'px');
+    body.classList.toggle('fx-depth', next.depth > 0);
+    body.classList.toggle('fx-float', !!next.float);
+    root.style.setProperty('--fade', next.fade + '%');
+    body.classList.toggle('no-fade', next.fade <= 0);
+    // zoom: a new mode or amount starts the camera / lens fresh; turning it on wakes it up
+    body.classList.toggle('zoom-camera', next.zoom === 'camera');
+    body.classList.toggle('zoom-lens', next.zoom === 'lens');
+    if (!prev || prev.zoom !== next.zoom || prev.zoomAmt !== next.zoomAmt || prev.zoomFollow !== next.zoomFollow) { cam = null; lensBox = null; }
+    if (!prev || prev.zoom !== next.zoom || prev.zoomIdle !== next.zoomIdle) wakeZoom();
+    const size = Math.round(next.size * fontScale * 10) / 10;
+    lh = Math.round(size * next.lh);
+    root.style.setProperty('--size', size + 'px');
+    root.style.setProperty('--lh', lh + 'px');
+    measure();
+    if (!prev || prev.size !== next.size || prev.lh !== next.lh || prev.wrap !== next.wrap || prev.theme !== next.theme) clearLines();
+    dlog('look', next);
+    return true;
+  }
+
+  function measure() {
+    probe.textContent = 'M'.repeat(50);
+    const w = probe.getBoundingClientRect().width / 50;
+    if (w > 0 && Math.abs(w - charW) > 0.01) { cam = null; lensBox = null; } // new font metrics: re-centre the zoom
+    if (w > 0) charW = w;
+    root.style.setProperty('--charw', charW.toFixed(2) + 'px');
+  }
+
+  // ---- state ----
+  let state = null, connected = false, updates = 0, lastBytes = 0, currentHl = null;
+  let curFile = null, prevFirst = -1, prevFocus = -1;
+  let anchor = 0;            // keeps line positions continuous as the line window slides over wrapped lines
+  const lineEls = new Map(); // lineNo -> { el, html, top, h }
+  const numEls = new Map();  // lineNo -> { el, top }
+
+  // ---- zoom: what it points at, and the camera / lens that follow it ----
+  let zoomActive = true;     // false once zoomOutAfter seconds pass with nothing happening
+  let zoomTimer = null;
+  let lastMover = 'cursor';  // 'mouse' | 'cursor': which moved most recently (for zoomFollow 'both')
+  let cam = null;            // camera offset {x, y} while zoomed in
+  let lensBox = null;        // lens geometry {cx, cy, w, h} while shown
+  let zoomSrc = null, zoomFile = null;
+
+  function wakeZoom() {
+    zoomActive = true;
+    clearTimeout(zoomTimer);
+    zoomTimer = null;
+    if (look && look.zoom !== 'off' && look.zoomIdle > 0) {
+      zoomTimer = setTimeout(() => { zoomTimer = null; zoomActive = false; render(); hud(); }, look.zoomIdle * 1000);
+    }
+  }
+
+  // called once per new state (not on re-renders): who moved last, and did anything happen at all?
+  function noteActivity(s, prev) {
+    if (!s || s.paused || s.hidden || s.empty || !s.cursor) return;
+    const p = prev || {};
+    const mouseMoved = !!(s.mouse && (!p.mouse || s.mouse.t !== p.mouse.t));
+    const cursorMoved = !p.cursor || s.cursor.line !== p.cursor.line || s.cursor.ch !== p.cursor.ch;
+    const newFile = !prev || s.file !== p.file || s.dir !== p.dir;
+    const cursorText = (x) => (x && x.lines && x.cursor ? x.lines[x.cursor.line - (x.start | 0)] : undefined);
+    if (newFile) lastMover = prev ? 'cursor' : (s.mouse ? 'mouse' : 'cursor'); // a switched-to file starts on the cursor
+    else if (mouseMoved) lastMover = 'mouse';
+    else if (cursorMoved) lastMover = 'cursor';
+    if (newFile || mouseMoved || cursorMoved || s.lineCount !== p.lineCount || cursorText(s) !== cursorText(p) ||
+        JSON.stringify(s.selection) !== JSON.stringify(p.selection)) wakeZoom();
+  }
+
+  function zoomTarget(s, first, last) {
+    if (!look || look.zoom === 'off' || !zoomActive || !s.cursor) return null;
+    const m = s.mouse;
+    const mouseOk = !!m && Number.isFinite(m.line) && m.line >= first && m.line <= last;
+    const useMouse = mouseOk && (look.zoomFollow === 'mouse' || (look.zoomFollow === 'both' && lastMover === 'mouse'));
+    return useMouse ? { line: m.line, ch: m.ch | 0, src: 'mouse' } : { line: s.cursor.line, ch: s.cursor.ch, src: 'cursor' };
+  }
+
+  function zoomReset(clear) {
+    cam = null; lensBox = null; zoomSrc = null;
+    if (zoomEl.style.transform) zoomEl.style.transform = '';
+    lens.classList.remove('on');
+    if (clear && lensContent.firstChild) lensContent.replaceChildren(); // e.g. a private file: drop the magnified copy now
+  }
+
+  // zt: the target; zLocal: its point in the code layer's own coordinates; tx/ty: the code layer's new offset
+  function renderZoom(zt, zLocal, tx, ty) {
+    const mode = zt ? look.zoom : 'off';
+    if (mode !== 'camera') { cam = null; if (zoomEl.style.transform) zoomEl.style.transform = ''; }
+    if (mode !== 'lens') { lensBox = null; lens.classList.remove('on'); }
+    if (mode === 'off') { zoomSrc = null; return; }
+    const W = view.clientWidth, H = view.clientHeight, Z = look.zoomAmt;
+    if (W < 60 || H < 60) return;
+    // the target in view coordinates (the zoom wrapper's own, untransformed space)
+    const Fx = zLocal ? code.offsetLeft + zLocal.x + tx : W / 2;
+    const Fy = zLocal ? zLocal.y + ty : H / 2;
+    const jump = zt.src !== zoomSrc || curFile !== zoomFile; // pointing somewhere else: re-centre
+    zoomSrc = zt.src; zoomFile = curFile;
+
+    // Vertically the view already keeps the target's line centred, so both styles track it exactly.
+    // Horizontally there is a dead zone, so typing doesn't drag the picture along with every keystroke.
+    if (mode === 'camera') {
+      if (!cam || jump) cam = { x: W / 2 - Z * Fx, y: 0 };
+      else {
+        const sx = Z * Fx + cam.x;
+        if (sx < W * 0.3) cam.x += W * 0.3 - sx; else if (sx > W * 0.7) cam.x -= sx - W * 0.7;
+      }
+      cam.y = H / 2 - Z * Fy;
+      cam.x = clamp(cam.x, W - Z * W, 0); // never show past the edges of the code
+      cam.y = clamp(cam.y, H - Z * H, 0);
+      zoomEl.style.transform = `translate(${cam.x.toFixed(1)}px, ${cam.y.toFixed(1)}px) scale(${Z})`;
+      return;
+    }
+
+    // lens: a wide magnifier about three zoomed lines tall, with a dead zone so it doesn't chase every keystroke
+    const Lw = Math.round(clamp(W * 0.62, Math.min(240, W - 16), W - 16));
+    const Lh = Math.round(clamp(lh * Z * 3, Math.min(lh * Z + 8, H - 16), H - 16));
+    let cx0 = Fx;
+    const cy0 = Fy;
+    if (lensBox && !jump && lensBox.w === Lw && lensBox.h === Lh) {
+      cx0 = lensBox.cx;
+      const dx = Lw * 0.25;
+      if (Fx < cx0 - dx) cx0 = Fx + dx; else if (Fx > cx0 + dx) cx0 = Fx - dx;
+    }
+    const Lx = Math.round(clamp(cx0 - Lw / 2, 8, W - Lw - 8));
+    const Ly = Math.round(clamp(cy0 - Lh / 2, 8, H - Lh - 8));
+    const wasOn = lens.classList.contains('on');
+    lensBox = { cx: Lx + Lw / 2, cy: Ly + Lh / 2, w: Lw, h: Lh };
+    // magnified copy of the view, placed so the target sits exactly over itself, like a loupe
+    const ox = clamp((Fx - Lx) - Z * Fx, Lw - Z * W, 0);
+    const oy = clamp((Fy - Ly) - Z * Fy, Lh - Z * H, 0);
+    if (!wasOn) { lens.style.transition = 'none'; lensContent.style.transition = 'none'; } // appear in place, then fade in
+    lens.style.width = Lw + 'px';
+    lens.style.height = Lh + 'px';
+    lens.style.transform = `translate(${Lx}px, ${Ly}px)`;
+    lensContent.style.width = W + 'px';
+    lensContent.style.height = H + 'px';
+    lensContent.style.transform = `translate(${ox.toFixed(1)}px, ${oy.toFixed(1)}px) scale(${Z})`;
+    const clone = zoomEl.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.className = 'zoom-clone';
+    clone.style.transform = '';
+    lensContent.replaceChildren(clone);
+    if (!wasOn) { void lens.offsetWidth; lens.style.transition = ''; lensContent.style.transition = ''; }
+    lens.classList.add('on');
+  }
+
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  function expandTabs(t, tab) {
+    if (t.indexOf('\t') < 0) return t;
+    let out = '', col = 0;
+    for (const ch of t) {
+      if (ch === '\t') { const n = tab - (col % tab); out += ' '.repeat(n); col += n; }
+      else { out += ch; col++; }
+    }
+    return out;
+  }
+  // VS Code character offset -> offset into the tab-expanded text that is in the DOM
+  const domOffset = (text, ch, tab) => expandTabs(text.slice(0, ch), tab).length;
+
+  // Split highlight.js output into per-line HTML, re-opening spans that cross line breaks.
+  function splitLines(html) {
+    const lines = [], open = [];
+    let cur = '', last = 0, m;
+    const re = /(<span[^>]*>)|(<\/span>)|(\n)/g;
+    while ((m = re.exec(html))) {
+      cur += html.slice(last, m.index);
+      last = re.lastIndex;
+      if (m[1]) { open.push(m[1]); cur += m[1]; }
+      else if (m[2]) { open.pop(); cur += m[2]; }
+      else { lines.push(cur + '</span>'.repeat(open.length)); cur = open.join(''); }
+    }
+    cur += html.slice(last);
+    lines.push(cur + '</span>'.repeat(open.length));
+    return lines;
+  }
+
+  // ---- DOM measurement: where a text offset of a line actually landed (wrapping, wide glyphs...) ----
+  function pointAt(el, offset) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node, acc = 0, lastNode = null;
+    while ((node = walker.nextNode())) {
+      const len = node.nodeValue.length;
+      if (offset <= acc + len) return { node, offset: offset - acc };
+      acc += len;
+      lastNode = node;
+    }
+    return lastNode ? { node: lastNode, offset: lastNode.nodeValue.length } : null;
+  }
+  // left/top of the caret placed before `offset`; null for an empty line
+  function caretRect(el, offset) {
+    const p = pointAt(el, offset);
+    if (!p) return null;
+    const r = document.createRange();
+    const len = p.node.nodeValue.length;
+    if (p.offset < len) {
+      r.setStart(p.node, p.offset); r.setEnd(p.node, p.offset + 1);
+      const rc = r.getClientRects()[0] || r.getBoundingClientRect();
+      return { left: rc.left, top: rc.top, height: rc.height };
+    }
+    if (len > 0) {
+      r.setStart(p.node, len - 1); r.setEnd(p.node, len);
+      const rects = r.getClientRects();
+      const rc = rects[rects.length - 1] || r.getBoundingClientRect();
+      return { left: rc.right, top: rc.top, height: rc.height };
+    }
+    return null;
+  }
+  // one rect per visual row covered by [o0, o1) of a line
+  function rangeRects(el, o0, o1) {
+    const p0 = pointAt(el, o0), p1 = pointAt(el, o1);
+    if (!p0 || !p1) return [];
+    const r = document.createRange();
+    r.setStart(p0.node, p0.offset);
+    r.setEnd(p1.node, p1.offset);
+    const rows = new Map();
+    for (const rc of r.getClientRects()) {
+      if (rc.width <= 0 && rc.height <= 0) continue;
+      const k = Math.round(rc.top);
+      const m = rows.get(k);
+      if (!m) rows.set(k, { left: rc.left, right: rc.right, top: rc.top, height: rc.height });
+      else { m.left = Math.min(m.left, rc.left); m.right = Math.max(m.right, rc.right); }
+    }
+    return Array.from(rows.values());
+  }
+
+  // ---- screen -> layer mapping. Client rects are projected through the 3D stage (tilt, scale,
+  // float...), so measure four known points of the layer and solve the projective mapping back. ----
+  const refs = [[0, 0], [1000, 0], [0, 1000], [1000, 1000]].map(([x, y]) => {
+    const el = document.createElement('i');
+    el.className = 'ref';
+    el.style.left = x + 'px'; el.style.top = y + 'px';
+    codeLayer.appendChild(el);
+    return { x, y, el };
+  });
+  function gauss(A, b) {
+    const n = b.length;
+    for (let c = 0; c < n; c++) {
+      let p = c;
+      for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+      if (Math.abs(A[p][c]) < 1e-9) return null;
+      [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
+      for (let r = 0; r < n; r++) {
+        if (r === c) continue;
+        const f = A[r][c] / A[c][c];
+        if (!f) continue;
+        for (let k = c; k < n; k++) A[r][k] -= f * A[c][k];
+        b[r] -= f * b[c];
+      }
+    }
+    return b.map((v, i) => v / A[i][i]);
+  }
+  // returns (u, v) screen -> {x, y} in the code layer's own coordinates
+  function screenToLocal() {
+    const pts = refs.map((r) => { const b = r.el.getBoundingClientRect(); return [b.left, b.top, r.x, r.y]; });
+    const A = [], b = [];
+    for (const [u, v, x, y] of pts) {
+      A.push([u, v, 1, 0, 0, 0, -u * x, -v * x]); b.push(x);
+      A.push([0, 0, 0, u, v, 1, -u * y, -v * y]); b.push(y);
+    }
+    const H = gauss(A, b);
+    if (!H) { const [u0, v0] = pts[0]; return (u, v) => ({ x: u - u0, y: v - v0 }); } // degenerate: plain offset
+    return (u, v) => {
+      const w = H[6] * u + H[7] * v + 1;
+      return { x: (H[0] * u + H[1] * v + H[2]) / w, y: (H[3] * u + H[4] * v + H[5]) / w };
+    };
+  }
+
+  // ---- highlight.js (loaded lazily so an offline stream PC still shows plain text) ----
+  const langStatus = {};
+  function loadScript(src, ok, fail) {
+    const sc = document.createElement('script');
+    sc.src = src; sc.async = true; sc.onload = ok; sc.onerror = fail;
+    document.head.appendChild(sc);
+  }
+  function resolveLanguage(id) {
+    if (!window.hljs || !id) return null;
+    const name = Object.prototype.hasOwnProperty.call(LANG_MAP, id) ? LANG_MAP[id] : id;
+    if (!name) return null;
+    if (hljs.getLanguage(name)) return name;
+    if (!langStatus[name]) {
+      langStatus[name] = 'loading';
+      loadScript(`${CONFIG.hljsBase}${CONFIG.hljsVersion}/languages/${name}.min.js`,
+        () => { langStatus[name] = 'ok'; dlog('loaded language', name); render(); },
+        () => { langStatus[name] = 'failed'; dlog('no highlight.js grammar for', name); });
+    }
+    return null;
+  }
+  if (!params.has('gallery')) {
+    loadScript(`${CONFIG.hljsBase}${CONFIG.hljsVersion}/highlight.min.js`,
+      () => { dlog('highlight.js ready'); render(); },
+      () => dlog('highlight.js failed to load; showing plain text'));
+  }
+
+  // ---- rendering ----
+  function hexToRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+  function setAccent(lang) {
+    const T = THEMES[theme] || THEMES.mocha;
+    let hex = T.badge === 'language' ? (CONFIG.langColors[lang] || T.vars.accent || '#b4befe') : (T.vars.accent || '#b4befe');
+    if (!/^#[0-9a-f]{6}$/i.test(hex)) hex = '#b4befe';
+    const [r, g, b] = hexToRgb(hex);
+    root.style.setProperty('--accent', hex);
+    root.style.setProperty('--accent-bg', `rgba(${r},${g},${b},0.14)`);
+    root.style.setProperty('--accent-edge', `rgba(${r},${g},${b},0.35)`);
+  }
+
+  function renderHeader(s) {
+    const dir = s.hidden ? '' : (s.dir ? s.dir + '/' : '');
+    const name = s.hidden ? '' : (s.file || '');
+    if (dirEl.textContent !== dir) dirEl.textContent = dir;
+    if (nameEl.textContent !== name) nameEl.textContent = name;
+    dirtyEl.classList.toggle('on', !!s.dirty && !s.hidden);
+    const lang = s.language || '';
+    if (langEl.textContent !== lang) { langEl.textContent = lang; setAccent(lang); }
+    posEl.textContent = s.cursor ? `Ln ${s.cursor.line + 1}, Col ${s.cursor.ch + 1}` : '';
+    dot.classList.toggle('demo', !!s.demo);
+  }
+
+  function addRect(x, y, w, h) {
+    const d = document.createElement('div');
+    d.className = 'sel';
+    d.style.left = x + 'px'; d.style.top = y + 'px'; d.style.width = w + 'px'; d.style.height = h + 'px';
+    selLayer.appendChild(d);
+  }
+
+  function renderSelection(s, first, tab, toLocal) {
+    selLayer.textContent = '';
+    const sel = s.selection;
+    if (!sel) return;
+    const last = first + s.lines.length - 1;
+    for (let n = Math.max(sel.start.line, first); n <= Math.min(sel.end.line, last); n++) {
+      const text = s.lines[n - first];
+      const rec = lineEls.get(n);
+      if (!rec) continue;
+      const o0 = n === sel.start.line ? domOffset(text, sel.start.ch, tab) : 0;
+      const o1 = n === sel.end.line ? domOffset(text, sel.end.ch, tab) : expandTabs(text, tab).length;
+      const rects = rangeRects(rec.el, o0, o1);
+      let drew = false;
+      for (let i = 0; i < rects.length; i++) {
+        const r = rects[i];
+        if (r.right - r.left <= 0) continue;
+        const a = toLocal(r.left, r.top), b = toLocal(r.right, r.top + r.height);
+        const extend = (n < sel.end.line && i === rects.length - 1) ? charW * 0.6 : 0; // like the editor: run past the line end
+        addRect(a.x, a.y, b.x - a.x + extend, b.y - a.y);
+        drew = true;
+      }
+      if (!drew) { // empty line inside the selection: a sliver so the line still reads as selected
+        const r = caretRect(rec.el, o0);
+        const p = r ? toLocal(r.left, r.top) : { x: LINE_PAD, y: rec.top };
+        addRect(p.x, p.y, charW * 0.6, lh);
+      }
+    }
+  }
+
+  function restartBlink() {
+    caret.style.animation = 'none';
+    void caret.offsetWidth; // reflow so the animation restarts
+    caret.style.animation = '';
+  }
+
+  function render() {
+    const s = state;
+    if (!s || galleryMode) return;
+    applyLook(effectiveLook(s));
+    if (s.paused || s.empty) { panel.classList.add('hidden'); zoomReset(false); return; }
+    panel.classList.remove('hidden');
+    renderHeader(s);
+    if (s.hidden) { view.classList.add('locked'); currentHl = null; zoomReset(true); return; }
+    view.classList.remove('locked');
+    if (!Array.isArray(s.lines) || !s.cursor) return;
+
+    const first = s.start | 0, count = s.lines.length, last = first + count - 1;
+    const zt = zoomTarget(s, first, last);  // where the zoom points; null when zoom is off or idle
+    const focusLine = zt && zt.src === 'mouse' ? zt.line : (s.focus | 0); // zoomed on the mouse: centre on its line
+    const key = (s.dir || '') + '/' + (s.file || '');
+    let snap = key !== curFile || prevFirst < 0 || Math.abs(focusLine - prevFocus) > BIG_JUMP;
+    if (key !== curFile) { anchor = 0; prevFirst = -1; }
+    curFile = key;
+
+    const tab = s.tabSize || 4;
+    const texts = s.lines.map((t) => expandTabs(t, tab));
+    const hl = resolveLanguage(s.language);
+    currentHl = hl;
+    let htmls = null;
+    if (hl) {
+      try { htmls = splitLines(hljs.highlight(texts.join('\n'), { language: hl, ignoreIllegals: true }).value); }
+      catch (e) { dlog('highlight failed', e); htmls = null; }
+    }
+    if (!htmls || htmls.length !== count) htmls = texts.map(esc);
+
+    // 1. line elements, diffed by line number so untouched lines keep their DOM (no flicker)
+    for (const [n, rec] of lineEls) {
+      if (n >= first && n <= last) continue;
+      if (n < first && prevFirst >= 0) anchor += rec.h - lh; // a wrapped line slid out above: its extra rows stay accounted for
+      rec.el.remove();
+      lineEls.delete(n);
+    }
+    for (const [n, rec] of numEls) if (n < first || n > last) { rec.el.remove(); numEls.delete(n); }
+    for (let i = 0; i < count; i++) {
+      const n = first + i, html = htmls[i];
+      let rec = lineEls.get(n);
+      if (!rec) {
+        const el = document.createElement('div');
+        el.className = 'line';
+        lineLayer.appendChild(el);
+        rec = { el, html: null, top: -1, h: 0, fresh: true };
+        lineEls.set(n, rec);
+      }
+      if (rec.html !== html) { rec.el.innerHTML = html; rec.html = html; }
+      let ne = numEls.get(n);
+      if (!ne) {
+        const el = document.createElement('div');
+        el.className = 'ln';
+        el.textContent = n + 1;
+        gutterLayer.appendChild(el);
+        ne = { el, top: -1 };
+        numEls.set(n, ne);
+      }
+      ne.el.classList.toggle('active', n === s.cursor.line);
+    }
+    const digits = String(Math.max(s.lineCount || 1, 1)).length;
+    root.style.setProperty('--gutter-w', Math.round((digits + 1) * charW + 24) + 'px');
+
+    // 2. heights (one layout read; wrapped lines are taller) -> tops, continuous across window moves
+    const tops = new Array(count), heights = new Array(count);
+    for (let i = 0; i < count; i++) {
+      const rec = lineEls.get(first + i);
+      const h = look.wrap ? Math.max(lh, rec.el.offsetHeight) : lh;
+      if (rec.fresh) { rec.fresh = false; if (prevFirst >= 0 && first + i < prevFirst) anchor -= h - lh; } // slid in above
+      rec.h = h;
+      heights[i] = h;
+    }
+    if (first === 0 && anchor !== 0) { anchor = 0; snap = true; }
+    let y = first * lh + anchor;
+    for (let i = 0; i < count; i++) { tops[i] = y; y += heights[i]; }
+    const bottom = y;
+    for (let i = 0; i < count; i++) {
+      const n = first + i, rec = lineEls.get(n), ne = numEls.get(n);
+      if (rec.top !== tops[i]) { rec.el.style.top = tops[i] + 'px'; rec.top = tops[i]; }
+      if (ne.top !== tops[i]) { ne.el.style.top = tops[i] + 'px'; ne.top = tops[i]; }
+    }
+    prevFirst = first;
+    prevFocus = focusLine;
+    if (snap) body.classList.add('no-anim');
+
+    // 3. vertical position: focus line centred, never past the file's first or last line
+    const viewH = view.clientHeight;
+    const fi = clamp(focusLine - first, 0, count - 1);
+    let ty = Math.round(viewH / 2 - heights[fi] / 2 - tops[fi]);
+    // at the very top / bottom of a file, keep the first / last line clear of the edge fade
+    const edgePad = Math.max(EDGE_PAD, Math.round(viewH * look.fade / 100));
+    if (last >= (s.lineCount | 0) - 1) ty = Math.max(ty, viewH - bottom - edgePad);
+    if (first === 0) ty = Math.min(ty, edgePad);
+
+    // 4. caret, current line, selection - measured from the DOM so wrapping and wide glyphs land exactly
+    const cl = s.cursor.line, ci = cl - first;
+    const caretOk = ci >= 0 && ci < count;
+    const toLocal = screenToLocal();
+    let caretX = LINE_PAD, caretY = 0;
+    if (caretOk) {
+      const r = caretRect(lineEls.get(cl).el, domOffset(s.lines[ci], s.cursor.ch, tab));
+      if (r) { const p = toLocal(r.left, r.top); caretX = p.x; caretY = p.y; }
+      else { caretX = LINE_PAD; caretY = tops[ci]; }
+      for (const c of curlines) { c.style.top = tops[ci] + 'px'; c.style.height = heights[ci] + 'px'; }
+    }
+    caret.style.display = caretOk ? '' : 'none';
+    caret.style.left = Math.round(caretX) + 'px';
+    caret.style.top = Math.round(caretY) + 'px';
+    restartBlink();
+    renderSelection(s, first, tab, toLocal);
+    // the zoom target, measured now (the same moment as toLocal), positioned after the new transforms below
+    let zLocal = null;
+    if (zt) {
+      const zi = zt.line - first, zrec = lineEls.get(zt.line);
+      if (zrec && zi >= 0 && zi < count) {
+        const r = caretRect(zrec.el, domOffset(s.lines[zi], zt.ch, tab));
+        zLocal = r ? toLocal(r.left, r.top + r.height / 2) : { x: LINE_PAD, y: tops[zi] + lh / 2 };
+      }
+    }
+
+    // 5. with wrap off: slide long lines sideways so the caret stays in view
+    let tx = 0;
+    if (!look.wrap && look.follow && caretOk) {
+      const limit = code.clientWidth - 56 - Math.max(charW * 6, 60);
+      if (caretX > limit) tx = -(caretX - limit);
+    }
+    codeLayer.style.transform = `translate(${tx}px, ${ty}px)`;
+    gutterLayer.style.transform = `translateY(${ty}px)`;
+
+    // 6. zoom: camera or lens on the target
+    renderZoom(zt, zLocal, tx, ty);
+
+    if (snap) requestAnimationFrame(() => requestAnimationFrame(() => body.classList.remove('no-anim')));
+  }
+
+  function hud() {
+    if (!debug) return;
+    const s = state || {};
+    hudEl.textContent = `${connected ? 'connected' : 'disconnected'}  ${serverBase}\n` +
+      `${updates} updates (last: ${s.reason || '-'}) · ${lastBytes} B · ${s.language || '-'} → ${currentHl || 'plain'} · ` +
+      `theme ${look ? look.theme : '-'} · ${charW.toFixed(2)}px/char · ${lh}px/line · wrap ${look && look.wrap ? 'on' : 'off'}` +
+      (look && look.zoom !== 'off'
+        ? `\nzoom ${look.zoom} ×${look.zoomAmt} follows ${look.zoomFollow} → ${lastMover}${zoomActive ? '' : ' (idle, zoomed out)'}` +
+          `${s.mouse ? ` · mouse Ln ${s.mouse.line + 1}, Col ${s.mouse.ch + 1}` : ' · no mouse yet'}`
+        : '');
+  }
+
+  function setConnected(v) {
+    connected = v;
+    dot.classList.toggle('off', !v);
+    hud();
+  }
+
+  // ---- data: Server-Sent Events from the extension ----
+  function connect(onState) {
+    dlog('connecting to', serverBase + '/events');
+    const es = new EventSource(serverBase + '/events');
+    es.onopen = () => { dlog('connected'); setConnected(true); };
+    es.onerror = () => { setConnected(false); };        // EventSource reconnects on its own
+    es.onmessage = (ev) => {
+      try {
+        lastBytes = ev.data.length;
+        updates++;
+        const prev = state;
+        state = JSON.parse(ev.data);
+        noteActivity(state, prev);
+        if (onState) onState(state); else render();
+        hud();
+        if (params.has('shot')) es.close(); // one frame for a headless screenshot: don't hold the stream open
+      } catch (e) { dlog('bad payload', e); }
+    };
+  }
+
+  // ---- demo: canned Lua that types itself, so the source can be positioned in OBS without VS Code ----
+  function runDemo() {
+    const src = [
+      'Config.Pumpkins = {',
+      '    -- where the pumpkin props are planted around the farm',
+      '    Spots = {',
+      '        { coords = vector3(-357.91, -137.17, 38.49), item = "pumpkin", prop = "prop_veg_crop_03_pump" },',
+      '        { coords = vector3(-581.94, -1070.52, 21.33), item = "pumpkin", prop = "prop_veg_crop_03_pump" },',
+      '        { coords = vector3(-690.67, 315.36, 82.11), item = "pumpkin", prop = "prop_veg_crop_03_pump" },',
+      '        { coords = vector3(419.43, -983.58, 28.42), item = "pumpkin", prop = "prop_veg_crop_03_pump" },',
+      '    },',
+      '',
+      '    -- animation played while picking',
+      '    PickAnimation = {',
+      "        dict = 'amb@world_human_gardener_plant@male@base',",
+      "        anim = 'base',",
+      '        flag = 1,',
+      '    },',
+      '',
+      '    -- skill checks in order; failing any one fails the pick',
+      "    SkillCheck = { 'easy', 'medium' },",
+      '',
+      "    SuccessMessage = 'You picked a pumpkin!',",
+      "    FailureMessage = 'You failed to pick the pumpkin!',",
+      '}',
+      '',
+      'local function canPick(src)',
+      '    local player = exports.qbx_core:GetPlayer(src)',
+      '    if not player then return false end',
+      '    return player.Functions.GetItemByName("basket") ~= nil',
+      'end',
+    ];
+    const typed = "    Cooldown = 30, -- seconds between picks";
+    const insertAt = 14;
+    const base = { v: 1, demo: true, file: 'pumpkins.lua', dir: 'resources/[qbx]/qbx_farming/config', language: 'lua', tabSize: 4 };
+    // spots the simulated mouse rests on (after the typed line is in): the dict string, SkillCheck, canPick
+    const points = [{ line: 11, ch: 22 }, { line: 18, ch: 9 }, { line: 24, ch: 17 }];
+    const T = insertAt + typed.length; // the step where typing ends
+    let lines = src.slice(), step = params.has('still') ? T + 1 : 0;
+    setConnected(true);
+    const show = (cursor, selection, mouse) => {
+      const prev = state;
+      state = Object.assign({}, base, {
+        lineCount: lines.length, cursor, selection: selection || null, focus: cursor.line, start: 0, lines,
+        dirty: lines.length !== src.length, mouse: mouse || (prev && prev.mouse) || null,
+      });
+      noteActivity(state, prev);
+      render();
+      hud();
+    };
+    if (params.has('still')) { // one static frame, for the gallery tiles and screenshots (mouse resting on the dict string)
+      lines.splice(insertAt, 0, typed);
+      show({ line: insertAt, ch: typed.length }, { start: { line: 10, ch: 4 }, end: { line: 10, ch: 17 } }, { line: 11, ch: 22, t: 1 });
+      return;
+    }
+    const tick = () => {
+      let delay = 320;
+      if (step < insertAt) {                               // walk the cursor down
+        show({ line: step, ch: Math.min(lines[step].length, 8) });
+      } else if (step === insertAt) {                      // open a new line
+        lines = src.slice(); lines.splice(insertAt, 0, '');
+        show({ line: insertAt, ch: 0 });
+      } else if (step <= insertAt + typed.length) {        // type it out
+        const n = step - insertAt;
+        lines[insertAt] = typed.slice(0, n);
+        show({ line: insertAt, ch: n });
+        delay = 55 + Math.random() * 60;
+      } else if (step <= T + 4) {                          // select the new line for a moment
+        show({ line: insertAt, ch: typed.length }, { start: { line: insertAt, ch: 4 }, end: { line: insertAt, ch: typed.length } });
+        delay = 500;
+      } else if (step <= T + 4 + points.length) {          // point at things with the mouse (the zoom follows it)
+        const p = points[step - (T + 5)];
+        show({ line: insertAt, ch: typed.length }, null, { line: p.line, ch: p.ch, t: Date.now() });
+        delay = 1600;
+      } else if (step <= T + 4 + points.length + 14) {     // wander down to the function with the text cursor
+        const l = Math.min(lines.length - 1, insertAt + (step - (T + 4 + points.length)));
+        show({ line: l, ch: Math.min(lines[l].length, 10) });
+      } else { step = -1; lines = src.slice(); delay = 800; }
+      step++;
+      setTimeout(tick, delay);
+    };
+    tick();
+  }
+
+  // ---- gallery / control panel: every theme side by side; clicks write the VS Code settings ----
+  function runGallery() {
+    body.classList.add('gallery');
+    const live = /^https?:$/.test(location.protocol);
+    const page = location.pathname;
+    const gal = document.createElement('div');
+    gal.id = 'gal';
+    gal.innerHTML = `
+      <h1>Stream Code · themes &amp; options</h1>
+      <div class="sub">${live
+        ? 'Click a theme to use it. Everything here writes the <b>Stream Code</b> settings in VS Code, so the OBS source changes right away. URL options on a source (<code>?theme=kick</code>, <code>?clean</code>…) still override these for that source.'
+        : 'Opened as a file, so nothing can be applied from here: click a theme to copy its URL option, or set the theme in VS Code settings → Stream Code.'}</div>
+      <div class="top">
+        <div class="controls${live ? '' : ' offline'}">
+          <div class="row">
+            <label><input type="checkbox" data-k="header"> Header</label>
+            <label><input type="checkbox" data-k="bg"> Background</label>
+            <label><input type="checkbox" data-k="nums"> Line numbers</label>
+            <label><input type="checkbox" data-k="wrap"> Word wrap</label>
+            <label>Font size <input type="number" data-k="size" min="8" max="80" step="1"></label>
+            <label>Line height <input type="number" data-k="lh" min="1" max="3" step="0.1"></label>
+            <button data-reset>Reset to the theme's defaults</button>
+            <span class="status">${live ? 'connecting…' : 'offline'}</span>
+          </div>
+          <div class="sliders">
+            <label>Tilt X <input type="range" data-k="tiltx" min="-60" max="60" step="1"><output></output></label>
+            <label>Turn Y <input type="range" data-k="tilty" min="-60" max="60" step="1"><output></output></label>
+            <label>Rotate <input type="range" data-k="rot" min="-45" max="45" step="1"><output></output></label>
+            <label>Perspective <input type="range" data-k="persp" min="200" max="3000" step="50"><output></output></label>
+            <label>Scale <input type="range" data-k="scale" min="0.25" max="2" step="0.05"><output></output></label>
+            <label>Depth <input type="range" data-k="depth" min="0" max="40" step="1"><output></output></label>
+            <label>Opacity <input type="range" data-k="opacity" min="0.1" max="1" step="0.05"><output></output></label>
+            <label>Edge fade <input type="range" data-k="fade" min="0" max="45" step="1" data-unit="%" data-zero="off"><output></output></label>
+            <label class="chk"><input type="checkbox" data-k="float"> Float (slow hover)</label>
+            <button data-reset3d>Reset 3D</button>
+          </div>
+          <div class="sliders">
+            <label class="pick">Zoom <select data-k="zoom"><option value="off">Off</option><option value="camera">Camera</option><option value="lens">Lens</option></select></label>
+            <label class="pick">Follows <select data-k="zoomFollow"><option value="both">Mouse + text cursor</option><option value="mouse">Mouse</option><option value="cursor">Text cursor</option></select></label>
+            <label>Amount <input type="range" data-k="zoomAmt" min="1.1" max="4" step="0.1" data-unit="×"><output></output></label>
+            <label>Zoom out <input type="range" data-k="zoomIdle" min="0" max="30" step="1" data-unit=" s" data-zero="never"><output></output></label>
+            <button data-resetzoom>Reset zoom</button>
+          </div>
+        </div>
+        ${live ? '<div class="preview"><iframe src="' + page + (params.has('shot') ? '?shot&still' : '') + '"></iframe><span>live · half size</span></div>' : ''}
+      </div>
+      <div class="grid"></div>
+      <div class="toast"></div>`;
+    body.appendChild(gal);
+    const grid = gal.querySelector('.grid'), toast = gal.querySelector('.toast'), status = gal.querySelector('.status');
+    const inputs = Array.from(gal.querySelectorAll('[data-k]'));
+    let toastTimer = null;
+    const say = (msg, err) => {
+      toast.textContent = msg; toast.classList.toggle('err', !!err); toast.classList.add('on');
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('on'), 2200);
+    };
+    const post = (patch) => fetch(serverBase + '/look', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); say('Applied'); })
+      .catch((e) => say('Could not apply (' + e.message + '). Reload the VS Code window so it runs the current extension build.', true));
+
+    for (const [name, T] of Object.entries(THEMES)) {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.dataset.theme = name;
+      tile.innerHTML = `<iframe loading="lazy" src="${page}?demo&still&theme=${name}&size=13&lh=1.5"></iframe>
+        <div class="cap"><b>${T.label}</b><span>${T.about}</span><code>?theme=${name}</code></div>`;
+      tile.addEventListener('click', () => {
+        if (live) post({ theme: name });
+        else if (navigator.clipboard) navigator.clipboard.writeText('?theme=' + name).then(() => say('Copied ?theme=' + name)).catch(() => say('?theme=' + name));
+        else say('?theme=' + name);
+      });
+      grid.appendChild(tile);
+    }
+    const readout = (inp) => {
+      const out = inp.type === 'range' ? inp.parentElement.querySelector('output') : null;
+      if (out) out.value = inp.dataset.zero && Number(inp.value) === 0 ? inp.dataset.zero : inp.value + (inp.dataset.unit || '');
+    };
+    for (const inp of inputs) {
+      inp.addEventListener('input', () => readout(inp));
+      inp.addEventListener('change', () => {
+        const k = inp.dataset.k;
+        let v;
+        if (inp.type === 'checkbox') v = inp.checked;
+        else if (inp.tagName === 'SELECT') v = inp.value;
+        else { v = parseFloat(inp.value); if (!Number.isFinite(v)) return; }
+        post({ [k]: v });
+      });
+    }
+    gal.querySelector('[data-resetzoom]').addEventListener('click', () => post({ zoom: null, zoomFollow: null, zoomAmt: null, zoomIdle: null }));
+    gal.querySelector('[data-reset]').addEventListener('click', () => post({ header: null, bg: null, nums: null, wrap: null, size: null, lh: null, fade: null }));
+    gal.querySelector('[data-reset3d]').addEventListener('click', () => post({ tiltx: null, tilty: null, rot: null, persp: null, scale: null, depth: null, float: null, opacity: null }));
+
+    const reflect = (s) => {
+      const eff = effectiveLook(s);
+      for (const t of grid.children) t.classList.toggle('active', t.dataset.theme === eff.theme);
+      for (const inp of inputs) {
+        const k = inp.dataset.k;
+        if (inp.type === 'checkbox') inp.checked = !!eff[k];
+        else { inp.value = eff[k]; readout(inp); }
+      }
+      status.innerHTML = `live · theme <b>${eff.theme}</b>${s.file ? ' · ' + esc(s.file) : ''}`;
+    };
+    if (live) connect(reflect);
+  }
+
+  // ---- go ----
+  window.addEventListener('resize', () => { cam = null; lensBox = null; measure(); render(); });
+  if (document.fonts) {
+    // fonts arrive after the first paint (and change with the theme): re-measure so wrapped
+    // line heights and the caret match the real glyphs
+    if (document.fonts.ready) document.fonts.ready.then(() => { measure(); render(); });
+    document.fonts.addEventListener('loadingdone', () => { measure(); render(); });
+  }
+  if (params.has('gallery')) { runGallery(); return; }
+  applyLook(effectiveLook(null));
+  if (params.has('demo')) runDemo(); else connect();
+  hud();
+})();
+</script>
+</body>
+</html>

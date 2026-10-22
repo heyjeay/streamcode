@@ -1,0 +1,8 @@
+# built by build_vsix.py
+*.vsix
+build/
+__pycache__/
+
+# the website
+site/node_modules/
+site/dist/

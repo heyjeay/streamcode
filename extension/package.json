@@ -1,0 +1,326 @@
+{
+  "name": "stream-code",
+  "displayName": "Stream Code",
+  "description": "Show the code you're writing on stream: a clean, themed, syntax-highlighted overlay for OBS and other browser sources, instead of capturing the VS Code window.",
+  "version": "1.6.0",
+  "publisher": "heyjeay",
+  "license": "MIT",
+  "homepage": "https://heyjeay.github.io/streamcode/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heyjeay/streamcode.git"
+  },
+  "qna": "https://discord.gg/8wwfPxfMWA",
+  "bugs": {
+    "url": "https://discord.gg/8wwfPxfMWA"
+  },
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "stream",
+    "obs",
+    "overlay",
+    "twitch",
+    "kick",
+    "streaming",
+    "live coding",
+    "browser source"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "streamCode.toggle",
+        "title": "Stream Code: Pause / Resume broadcasting"
+      },
+      {
+        "command": "streamCode.pickTheme",
+        "title": "Stream Code: Pick a theme"
+      },
+      {
+        "command": "streamCode.openSettings",
+        "title": "Stream Code: Settings (theme, header, background, size...)"
+      },
+      {
+        "command": "streamCode.openGallery",
+        "title": "Stream Code: Open the theme gallery / control panel"
+      },
+      {
+        "command": "streamCode.openOverlay",
+        "title": "Stream Code: Open the overlay in a browser"
+      }
+    ],
+    "configuration": {
+      "title": "Stream Code",
+      "properties": {
+        "streamCode.theme": {
+          "type": "string",
+          "default": "mocha",
+          "enum": [
+            "mocha",
+            "kick",
+            "twitch",
+            "terminal",
+            "paper",
+            "glass",
+            "neon",
+            "mac",
+            "nord",
+            "dracula",
+            "gruvbox",
+            "minimal"
+          ],
+          "enumDescriptions": [
+            "Mocha: Catppuccin Mocha, same as the editor",
+            "Kick: black panel and Kick green, matches the song-request overlay",
+            "Twitch: Twitch dark with purple accents",
+            "Terminal: green phosphor CRT with scanlines, glow and a block cursor",
+            "Paper: light card with GitHub-style colours",
+            "Glass: frosted translucent panel, pastel colours",
+            "Neon: synthwave pink and cyan with glow",
+            "Mac: macOS-style window with One Dark colours",
+            "Nord: cool blue-grey with an editor-tab header",
+            "Dracula: the Dracula palette",
+            "Gruvbox: warm retro, boxy corners, editor-tab header",
+            "Minimal: no panel, no header, no numbers, just the code"
+          ],
+          "order": 1,
+          "description": "Overlay theme. Preview them all with 'Stream Code: Open the theme gallery' (http://127.0.0.1:7331/?gallery)."
+        },
+        "streamCode.showHeader": {
+          "type": "boolean",
+          "default": true,
+          "order": 2,
+          "description": "Show the file-name bar above the code. (The Minimal theme hides it unless this is set explicitly.)"
+        },
+        "streamCode.showBackground": {
+          "type": "boolean",
+          "default": true,
+          "order": 3,
+          "description": "Draw the panel background, border and shadow. Off: the code floats over the game with a soft text shadow."
+        },
+        "streamCode.showLineNumbers": {
+          "type": "boolean",
+          "default": true,
+          "order": 4,
+          "description": "Show line numbers."
+        },
+        "streamCode.wordWrap": {
+          "type": "boolean",
+          "default": true,
+          "order": 5,
+          "description": "Wrap long lines onto extra rows. Off: long lines slide sideways to keep the caret in view."
+        },
+        "streamCode.fontSize": {
+          "type": "number",
+          "default": 22,
+          "minimum": 8,
+          "maximum": 80,
+          "order": 6,
+          "description": "Code font size in the overlay, in px."
+        },
+        "streamCode.lineHeight": {
+          "type": "number",
+          "default": 1.6,
+          "minimum": 1,
+          "maximum": 3,
+          "order": 7,
+          "description": "Line height as a multiple of the font size."
+        },
+        "streamCode.edgeFade": {
+          "type": "number",
+          "default": 4,
+          "minimum": 0,
+          "maximum": 45,
+          "order": 7.5,
+          "description": "Fade the code out at the top and bottom of the overlay: the % of its height that fades at each edge. 0 = hard edges, about 25 = the code dissolves into the game (nice with the background off)."
+        },
+        "streamCode.tiltX": {
+          "type": "number",
+          "default": 0,
+          "minimum": -60,
+          "maximum": 60,
+          "order": 8,
+          "description": "3D: tilt the panel forward (+) or back (-), in degrees."
+        },
+        "streamCode.tiltY": {
+          "type": "number",
+          "default": 0,
+          "minimum": -60,
+          "maximum": 60,
+          "order": 9,
+          "description": "3D: turn the panel to the right (+) or left (-), in degrees."
+        },
+        "streamCode.rotate": {
+          "type": "number",
+          "default": 0,
+          "minimum": -45,
+          "maximum": 45,
+          "order": 10,
+          "description": "3D: rotate the panel in its plane, in degrees."
+        },
+        "streamCode.perspective": {
+          "type": "number",
+          "default": 1200,
+          "minimum": 200,
+          "maximum": 5000,
+          "order": 11,
+          "description": "3D: perspective distance in px. Smaller is more dramatic."
+        },
+        "streamCode.scale": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.25,
+          "maximum": 2,
+          "order": 12,
+          "description": "Scale of the whole panel (1 = fills the browser source). Shrink it when a tilted panel gets cut off at the edges."
+        },
+        "streamCode.depth": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 40,
+          "order": 13,
+          "description": "3D: fake thickness in px so a tilted panel looks like a solid slab, plus a light sheen. 0 = flat."
+        },
+        "streamCode.float": {
+          "type": "boolean",
+          "default": false,
+          "order": 14,
+          "description": "3D: slow hovering motion."
+        },
+        "streamCode.opacity": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.1,
+          "maximum": 1,
+          "order": 15,
+          "description": "Opacity of the whole panel."
+        },
+        "streamCode.zoom": {
+          "type": "string",
+          "default": "off",
+          "enum": [
+            "off",
+            "camera",
+            "lens"
+          ],
+          "enumDescriptions": [
+            "No zoom",
+            "Camera: the whole code view zooms in and pans to follow the mouse / text cursor",
+            "Lens: a magnifier over the normal view follows the mouse / text cursor"
+          ],
+          "order": 16,
+          "description": "Zoom in on the code you're pointing at or editing."
+        },
+        "streamCode.zoomFollow": {
+          "type": "string",
+          "default": "both",
+          "enum": [
+            "both",
+            "mouse",
+            "cursor"
+          ],
+          "enumDescriptions": [
+            "Whichever moved last: the mouse or the text cursor",
+            "Only the mouse",
+            "Only the text cursor"
+          ],
+          "order": 17,
+          "description": "What the zoom follows. VS Code doesn't tell extensions where the mouse is, so 'mouse' means where it last rested over code (the moment a hover tooltip would appear) or clicked."
+        },
+        "streamCode.zoomAmount": {
+          "type": "number",
+          "default": 1.8,
+          "minimum": 1.1,
+          "maximum": 4,
+          "order": 18,
+          "description": "How much the zoom magnifies."
+        },
+        "streamCode.zoomOutAfter": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 60,
+          "order": 19,
+          "description": "Seconds without typing, moving or pointing before the zoom eases back out (the lens hides). 0 = stay zoomed."
+        },
+        "streamCode.port": {
+          "type": "number",
+          "default": 7331,
+          "order": 20,
+          "description": "Local port the overlay connects to (http://127.0.0.1:<port>/). Only listens on 127.0.0.1."
+        },
+        "streamCode.bufferLines": {
+          "type": "number",
+          "default": 50,
+          "minimum": 10,
+          "maximum": 400,
+          "order": 21,
+          "description": "How many lines above and below the cursor are sent to the overlay. The overlay only shows what fits, this is just scroll buffer."
+        },
+        "streamCode.maxLineLength": {
+          "type": "number",
+          "default": 400,
+          "order": 22,
+          "description": "Lines longer than this are cut (with an ellipsis) before they are sent."
+        },
+        "streamCode.hideFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/.env",
+            "**/.env.*",
+            "**/*.env",
+            "**/*secret*",
+            "**/*credential*",
+            "**/*token*",
+            "**/*password*",
+            "**/*.pem",
+            "**/*.key",
+            "**/*.pfx",
+            "**/*.p12",
+            "**/*.kdbx",
+            "**/id_rsa*",
+            "**/id_ed25519*",
+            "**/.netrc",
+            "**/.npmrc",
+            "**/.pypirc"
+          ],
+          "order": 23,
+          "description": "Glob patterns of files that are never broadcast. The overlay shows a lock card instead of their contents."
+        },
+        "streamCode.overlayPath": {
+          "type": "string",
+          "default": "",
+          "order": 24,
+          "description": "Optional: serve this HTML file at http://127.0.0.1:<port>/ instead of the bundled overlay. Point it at your repo copy of stream_code.html to tweak the look without reinstalling."
+        }
+      }
+    }
+  }
+}
