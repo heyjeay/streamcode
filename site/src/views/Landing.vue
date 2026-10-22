@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import {
   ArrowRight, Box, Download, Lock, MonitorPlay, Palette, Radio, ScanSearch, ShieldCheck, SlidersHorizontal, Zap
 } from 'lucide-vue-next'
 import { siDiscord, siGithub } from 'simple-icons'
 import BrandIcon from '@/components/BrandIcon.vue'
-import { DISCORD_URL, DOWNLOAD_URL, GITHUB_URL, MARKETPLACE_URL, OVERLAY_URL, RELEASES_URL, THEMES } from '@/config'
+import StudioPreview from '@/components/StudioPreview.vue'
+import { DISCORD_URL, DOWNLOAD_URL, GITHUB_URL, MARKETPLACE_URL, OVERLAY_URL, RELEASES_URL } from '@/config'
 import shotLens from '@ext/images/zoom-lens.webp'
 import shotCamera from '@ext/images/zoom-camera.webp'
 import shotNeon from '@ext/images/neon-3d.webp'
@@ -15,33 +16,6 @@ import shotGallery from '@ext/images/gallery.webp'
 import shotLock from '@ext/images/lock.webp'
 
 /** The Stream Code website: what it is, the real overlay running live, and how to get it. */
-
-// ---- the live demo: the actual overlay, in its demo mode, typing Lua by itself ----
-const theme = ref<string>('mocha')
-const EFFECTS = [
-  { id: '3d', label: '3D tilt', query: 'tilty=-18&tiltx=5&depth=14&scale=0.9' },
-  { id: 'lens', label: 'Lens zoom', query: 'zoom=lens' },
-  { id: 'camera', label: 'Camera zoom', query: 'zoom=camera' },
-  { id: 'clean', label: 'Just the code', query: 'clean&fade=22' },
-] as const
-const effects = ref<Set<string>>(new Set())
-
-function toggle(id: string) {
-  const next = new Set(effects.value)
-  if (next.has(id)) next.delete(id)
-  else {
-    // the two zooms are alternatives, not a combination
-    if (id === 'lens') next.delete('camera')
-    if (id === 'camera') next.delete('lens')
-    next.add(id)
-  }
-  effects.value = next
-}
-
-const demoSrc = computed(() => {
-  const extra = EFFECTS.filter((e) => effects.value.has(e.id)).map((e) => '&' + e.query).join('')
-  return `${import.meta.env.BASE_URL}overlay.html?demo&backdrop&theme=${theme.value}${extra}`
-})
 
 const FEATURES = [
   { icon: Radio, title: 'Live, as you type', body: 'The file you are in, the lines around your cursor, your selection. Updated as you type, with smooth scrolling that follows you.' },
@@ -105,55 +79,13 @@ const active = ref(0)
         Free and open source. Works with OBS, Meld Studio and anything with a browser source.
       </p>
 
-      <!-- The real overlay, running right here in demo mode. -->
+      <!-- The real overlay, running in a streaming studio: what viewers see, and how it is set up. -->
       <div id="themes" class="relative mx-auto mt-14 max-w-5xl scroll-mt-6">
         <div class="absolute -inset-6 -z-10 rounded-[2rem] bg-indigo-500/20 blur-3xl" />
-        <div class="overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/15">
-          <div class="flex items-center gap-1.5 bg-neutral-900/90 px-4 py-2.5">
-            <span class="h-2.5 w-2.5 rounded-full bg-white/20" />
-            <span class="h-2.5 w-2.5 rounded-full bg-white/20" />
-            <span class="h-2.5 w-2.5 rounded-full bg-white/20" />
-            <span class="ml-3 rounded-md bg-white/10 px-3 py-0.5 font-mono text-xs text-white/50">Browser source · {{ OVERLAY_URL }}</span>
-            <span class="ml-auto flex items-center gap-1.5 text-xs text-white/45"><span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> live demo</span>
-          </div>
-          <div class="relative aspect-[16/9] bg-[#11111b]">
-            <iframe
-              :key="demoSrc"
-              :src="demoSrc"
-              title="The Stream Code overlay, typing Lua by itself"
-              class="absolute inset-0 h-full w-full border-0"
-              loading="lazy"
-            />
-          </div>
-        </div>
-
-        <div class="mt-6 flex flex-wrap justify-center gap-2" role="radiogroup" aria-label="Theme">
-          <button
-            v-for="t in THEMES"
-            :key="t.id"
-            role="radio"
-            :aria-checked="theme === t.id"
-            class="flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm ring-1 transition"
-            :class="theme === t.id ? 'bg-white text-neutral-900 ring-white' : 'bg-white/[.06] text-white/75 ring-white/10 hover:bg-white/10 hover:text-white'"
-            @click="theme = t.id"
-          >
-            <span class="h-2.5 w-2.5 rounded-full ring-1 ring-black/20" :style="{ background: t.swatch }" />
-            {{ t.label }}
-          </button>
-        </div>
-        <div class="mt-3 flex flex-wrap justify-center gap-2">
-          <button
-            v-for="e in EFFECTS"
-            :key="e.id"
-            :aria-pressed="effects.has(e.id)"
-            class="rounded-full px-3.5 py-1.5 text-sm ring-1 transition"
-            :class="effects.has(e.id) ? 'bg-sky-500 text-white ring-sky-400' : 'text-white/65 ring-white/15 hover:bg-white/10 hover:text-white'"
-            @click="toggle(e.id)"
-          >
-            {{ e.label }}
-          </button>
-        </div>
-        <p class="mt-3 text-xs text-white/45">This is the actual overlay running in your browser, typing by itself. On stream it shows your code.</p>
+        <StudioPreview />
+        <p class="mt-3 text-xs text-white/45">
+          The code panel is the actual overlay, running in your browser and typing by itself. Try the themes and effects under the canvas.
+        </p>
       </div>
     </section>
 
